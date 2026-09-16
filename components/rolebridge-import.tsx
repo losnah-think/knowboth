@@ -5,20 +5,60 @@ import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import type {ImportedJob,JobLink} from '@/lib/rolebridge/job-source';
 import {toast} from 'sonner';
-export function SourceImporter({onBatch,onCandidates}:{onBatch:(jobs:ImportedJob[])=>void;onCandidates:(links:JobLink[])=>void}){
- const [url,setUrl]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[error,setError]=useState(''),[failures,setFailures]=useState<{url:string;message:string}[]>([]),[next,setNext]=useState<string|null>(null);
- const controller=useRef<AbortController|null>(null),collected=useRef<ImportedJob[]>([]),seen=useRef(new Set<string>()),candidates=useRef(new Map<string,JobLink>()),alive=useRef(true);
+type ImportResponse = {error?:string; retryable?:boolean; job?:ImportedJob; links?:JobLink[]; nextOffset?:number|null; total?:number};
+export function SourceImporter({onBatch,onCandidates,onBusy}:{onBatch:(jobs:ImportedJob[])=>void;onCandidates:(links:JobLink[])=>void;onBusy:(busy:boolean)=>void}){
+ const [keyword,setKeyword]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[error,setError]=useState('');
+ const [failures,setFailures]=useState<{title:string;message:string}[]>([]),[next,setNext]=useState<number|null>(null),[activeKeyword,setActiveKeyword]=useState('');
+ const [total,setTotal]=useState<number|null>(null),[checked,setChecked]=useState(0);
+ const controller=useRef<AbortController|null>(null),collected=useRef<ImportedJob[]>([]),seen=useRef(new Set<number>()),candidates=useRef(new Map<number,JobLink>()),alive=useRef(true);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;controller.current?.abort();};},[]);
- async function request(link:string,kind:'job'|'search',signal:AbortSignal){const response=await fetch('/api/import-jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:link,mode:kind}),signal});const data=await response.json() as {error?:string;job?:ImportedJob;links?:JobLink[];nextPage?:string|null};if(!response.ok)throw new Error(data.error||'페이지를 읽지 못했어요.');return data;}
- async function run(resume=false){if(!url.trim()&&!resume)return;controller.current?.abort();const c=new AbortController();controller.current=c;setBusy(true);setError('');if(!resume){collected.current=[];seen.current.clear();setFailures([]);setNext(null);candidates.current.clear();onCandidates([]);onBatch([]);}try{
- let page=resume?next:'https://www.saramin.co.kr/zf_user/search/recruit?searchword='+encodeURIComponent(url.trim());let pageCount=0,attempted=0;const bad:{url:string;message:string}[]=[];
- while(page&&pageCount<5&&!c.signal.aborted){pageCount++;setMessage(`검색 ${pageCount}페이지의 공고 링크를 찾고 있어요…`);const currentPage=page;const data=await request(page,'search',c.signal);for(const link of data.links||[])candidates.current.set(link.url,link);onCandidates([...candidates.current.values()]);const links=(data.links||[]).filter(x=>!seen.current.has(x.url));if(!links.length){setNext(null);page=null;break;}setNext(data.nextPage||null);
- for(const link of links){if(c.signal.aborted){setNext(currentPage);break;}attempted++;setMessage(`${pageCount}페이지 · ${attempted}개 확인 중 · ${collected.current.length}개 본문 수집`);try{const detail=await request(link.url,'job',c.signal);if(detail.job){collected.current.push(detail.job);onBatch([...collected.current]);}seen.current.add(link.url);}catch(e){if(c.signal.aborted){setNext(currentPage);break;}seen.current.add(link.url);bad.push({url:link.url,message:e instanceof Error?e.message:'가져오기 실패'});setFailures(p=>[...p,bad[bad.length-1]]);}}
- page=c.signal.aborted?currentPage:data.nextPage||null;
+ async function pause(ms:number,signal:AbortSignal){await new Promise<void>((resolve,reject)=>{const cancel=()=>{clearTimeout(timer);reject(new DOMException('Aborted','AbortError'));};const timer=setTimeout(()=>{signal.removeEventListener('abort',cancel);resolve();},ms);if(signal.aborted)cancel();else signal.addEventListener('abort',cancel,{once:true});});}
+ async function request(body:{mode:'search';keyword:string;offset:number}|{mode:'job';id:number},signal:AbortSignal):Promise<ImportResponse>{
+  for(let attempt=0;attempt<3;attempt++){
+   try{
+    const response=await fetch('/api/import-jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal});
+    const data=await response.json() as ImportResponse;
+    if(response.ok)return data;
+    if((data.retryable||response.status>=500)&&attempt<2){await pause(1500*(attempt+1),signal);continue;}
+    throw new Error(data.error||'원티드 정보를 읽지 못했어요.');
+   }catch(e){
+    if(signal.aborted)throw e;
+    if(e instanceof TypeError&&attempt<2){await pause(1500*(attempt+1),signal);continue;}
+    throw e;
+   }
+  }
+  throw new Error('원티드 정보를 읽지 못했어요.');
  }
- if(!c.signal.aborted)setMessage(`${collected.current.length}개 본문 수집 · 이번 실행 실패 ${bad.length}개${page?' · 다음 묶음이 있어요.':' · 현재 공개 검색 범위를 확인했어요.'}`);
- }catch(e){if(!c.signal.aborted)setError(e instanceof Error?e.message:'공고를 가져오지 못했어요.');}finally{if(alive.current){setBusy(false);if(c.signal.aborted)setMessage(`수집을 중단했어요. 가져온 ${collected.current.length}개는 비교할 수 있어요.`);}}}
- return <div className="source-import"><form onSubmit={e=>{e.preventDefault();void run();}}><label htmlFor="job-search">직무 또는 키워드</label><div className="url-input-wrap"><Search size={18}/><Input id="job-search" type="search" maxLength={80} value={url} onChange={e=>setUrl(e.target.value)} disabled={busy} placeholder="AX, PM, FDE… 어떤 일을 찾고 있나요?"/></div><div className="search-suggestions">{['AX','PM','FDE','서비스 기획','프론트엔드'].map(word=><button key={word} type="button" disabled={busy} onClick={()=>setUrl(word)}>{word}</button>)}</div><Button type="submit" variant="outline" className="import-button" disabled={busy||!url.trim()}>{busy?<Loader2 className="animate-spin"/>:<Search/>}채용공고 검색하기<ArrowRight/></Button></form><p className="field-hint">사람인 공개 검색결과를 가져와요. 최대 5페이지씩 살펴보고 다음 결과도 이어서 검색할 수 있어요.</p>{busy&&<Button variant="ghost" size="sm" onClick={()=>controller.current?.abort()}><X/>수집 중단</Button>}{message&&<p className="import-status" role="status">{message}</p>}{error&&<p className="error-message" role="alert">{error}</p>}{!busy&&next&&<Button variant="outline" className="mt-3" onClick={()=>run(true)}>다음 검색결과 이어서 가져오기</Button>}{failures.length>0&&<details className="import-failures"><summary>본문을 가져오지 못한 공고 {failures.length}개</summary>{failures.map((f,i)=><p key={i}><a href={f.url} target="_blank" rel="noreferrer">공고 직접 열기 ↗</a><br/>{f.message}</p>)}</details>}</div>;
+ async function run(resume=false){
+  const term=resume?activeKeyword:keyword.trim();if(!term)return;
+  controller.current?.abort();const c=new AbortController();controller.current=c;setBusy(true);onBusy(true);setError('');
+  if(!resume){collected.current=[];seen.current.clear();candidates.current.clear();setFailures([]);setNext(0);setTotal(null);setChecked(0);setActiveKeyword(term);onCandidates([]);onBatch([]);}
+  let offset:number|null=resume?next:0;let excluded=resume?failures.length:0;
+  try{
+   while(offset!==null&&!c.signal.aborted){
+    const currentOffset:number=offset;setNext(currentOffset);setMessage(`원티드에서 ‘${term}’ 검색결과를 가져오고 있어요…`);
+    const data=await request({mode:'search',keyword:term,offset:currentOffset},c.signal);
+    setTotal(data.total??null);
+    for(const link of data.links||[])candidates.current.set(link.id,link);
+    onCandidates([...candidates.current.values()]);
+    const links=(data.links||[]).filter(x=>!seen.current.has(x.id));
+    for(const link of links){
+     c.signal.throwIfAborted();setMessage(`${seen.current.size+1}번째 공고를 읽고 있어요 · ${link.company||'원티드'} / ${link.title}`);
+     try{
+      const detail=await request({mode:'job',id:link.id},c.signal);
+      if(!detail.job)throw new Error('공고 본문을 확인하지 못해 제외했어요.');
+      collected.current.push(detail.job);onBatch([...collected.current]);
+     }catch(e){if(c.signal.aborted)throw e;excluded++;setFailures(p=>[...p,{title:link.title,message:e instanceof Error?e.message:'자동 확인 실패'}]);}
+     seen.current.add(link.id);setChecked(seen.current.size);
+     await pause(250,c.signal);
+    }
+    offset=data.nextOffset??null;setNext(offset);
+   }
+   if(!c.signal.aborted)setMessage(candidates.current.size?`확인 완료 · 비교할 수 있는 공고 ${collected.current.length}개${excluded?` · 자동 제외 ${excluded}개`:''}`:`원티드에서 ‘${term}’ 검색결과가 없어요. 다른 직무나 키워드로 검색해 주세요.`);
+  }catch(e){if(!c.signal.aborted)setError(e instanceof Error?e.message:'원티드 검색을 이어가지 못했어요.');}
+  finally{if(alive.current){setBusy(false);onBusy(false);if(c.signal.aborted)setMessage(`잠시 멈췄어요. 읽어낸 ${collected.current.length}개 공고는 바로 비교할 수 있어요.`);}}
+ }
+ return <div className="source-import"><form onSubmit={e=>{e.preventDefault();void run();}}><label htmlFor="job-search">원티드에서 찾을 직무 또는 키워드</label><div className="url-input-wrap"><Search size={18}/><Input id="job-search" type="search" maxLength={80} value={keyword} onChange={e=>setKeyword(e.target.value)} disabled={busy} placeholder="AX, PM, FDE… 어떤 일을 찾고 있나요?"/></div><div className="search-suggestions">{['AX','PM','FDE','서비스 기획','프론트엔드'].map(word=><button key={word} type="button" disabled={busy} onClick={()=>setKeyword(word)}>{word}</button>)}</div><Button type="submit" variant="outline" className="import-button" disabled={busy||!keyword.trim()}>{busy?<Loader2 className="animate-spin"/>:<Search/>}원티드 공고 찾기<ArrowRight/></Button></form><p className="field-hint">검색결과의 상세 공고를 하나씩 읽어요. 주요 업무·자격 요건·우대 사항을 자동으로 가져오고, 일시적인 오류는 다시 시도해요.</p>{total!==null&&<div className="collection-progress"><div><strong>{checked} / {total}개 확인</strong><span>비교 준비 {collected.current.length}개</span></div><progress aria-label="원티드 공고 확인 진행률" max={Math.max(total,checked,1)} value={checked}/></div>}{message&&<p className="import-status" role="status">{message}</p>}{busy&&<Button variant="ghost" size="sm" onClick={()=>controller.current?.abort()}><X/>잠시 멈추기</Button>}{error&&<p className="error-message" role="alert">{error}</p>}{!busy&&next!==null&&<Button variant="outline" className="mt-3" onClick={()=>run(true)}>‘{activeKeyword}’ 공고 확인 이어가기</Button>}{failures.length>0&&<details className="import-failures"><summary>자동으로 제외한 공고 {failures.length}개</summary><p>마감되었거나 본문을 확인하지 못한 공고는 비교에 포함하지 않아요.</p>{failures.map((f,i)=><p key={i}><strong>{f.title}</strong><br/>{f.message}</p>)}</details>}</div>;
 }
 export function ResumeUpload({onText}:{onText:(text:string,name:string)=>void}){
  const [busy,setBusy]=useState(false),[name,setName]=useState(''),[error,setError]=useState('');const fileRef=useRef<HTMLInputElement>(null);

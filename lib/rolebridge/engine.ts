@@ -48,8 +48,8 @@ export function analyzeLocal(raw:AnalysisInput):Report{
  const input=raw;const jobLines=lines(input.job);const expLines=sentences(input.experience);
  const top=jobLines.slice(0,4).join(' ');
  const seniority:Report['seniority']=/신입/.test(top)&&/경력/.test(top)&&!/경력\s*(무관|없)/.test(top)?'mixed':/신입|경력\s*무관/.test(top)?'entry':/경력|\d+\s*년/.test(top)?'experienced':'unknown';
- let section:Requirement['importance']='core_work';const rows:{quote:string;importance:Requirement['importance']}[]=[];
- for(const line of jobLines){if(injection.test(line))continue;if(/^(우대 사항|우대사항|우대 조건|우대조건|Preferred)\s*[:：]?$/i.test(line)){section='preferred';continue;}if(/^(자격 요건|자격요건|필수 사항|필수사항|필수 요건|자격 조건|Requirements)\s*[:：]?$/i.test(line)){section='required';continue;}if(/^(주요 업무|주요업무|담당 업무|담당업무|Responsibilities)\s*[:：]?$/i.test(line)){section='core_work';continue;}rows.push({quote:line,importance:/우대/.test(line)?'preferred':section});}
+ let section:Requirement['importance']='core_work';let contextOnly=false;const rows:{quote:string;importance:Requirement['importance']}[]=[];
+ for(const line of jobLines){if(line==='회사·직무 소개'){contextOnly=true;continue;}if(contextOnly||injection.test(line))continue;if(/^(우대 사항|우대사항|우대 조건|우대조건|Preferred)\s*[:：]?$/i.test(line)){section='preferred';continue;}if(/^(자격 요건|자격요건|필수 사항|필수사항|필수 요건|자격 조건|Requirements)\s*[:：]?$/i.test(line)){section='required';continue;}if(/^(주요 업무|주요업무|담당 업무|담당업무|Responsibilities)\s*[:：]?$/i.test(line)){section='core_work';continue;}rows.push({quote:line,importance:/우대/.test(line)?'preferred':section});}
  const requirements:Requirement[]=[];
  for(const s of skills){const matched=rows.filter(x=>s.re.test(x.quote)&&!/^\[/.test(x.quote));if(!matched.length)continue;matched.sort((a,b)=>({required:3,core_work:2,preferred:1}[b.importance]-{required:3,core_work:2,preferred:1}[a.importance]));const row=matched[0];
  const candidates=expLines.filter(x=>s.re.test(x));const q=candidates.find(x=>negative.test(x))||candidates.find(x=>performed.test(x))||candidates[0]||'';

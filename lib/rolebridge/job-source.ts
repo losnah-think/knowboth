@@ -1,57 +1,102 @@
 import { parseHTML } from 'linkedom';
-export type JobLink={url:string;title:string;company?:string;summary?:string};
-export type ImportedJob=JobLink&{text:string;source:string;fetchedAt:string};
-const allowed=['saramin.co.kr','wanted.co.kr','jobkorea.co.kr','jumpit.co.kr'];
-export function validateJobUrl(raw:string):URL{
- let url:URL;try{url=new URL(raw);}catch{throw new Error('https://로 시작하는 올바른 링크를 넣어주세요.');}
- if(url.protocol!=='https:'||url.username||url.password||(url.port&&url.port!=='443')||!allowed.some(h=>url.hostname===h||url.hostname.endsWith('.'+h)))throw new Error('사람인·원티드·잡코리아·점핏의 https 채용 링크를 지원해요.');
- if(/\/(login|signin|join|apply|resume|mypage|member)(\/|$)/i.test(url.pathname))throw new Error('로그인이 필요한 개인 페이지는 가져올 수 없어요. 공개 공고 링크를 넣어주세요.');
- url.hash='';return url;
-}
-export async function fetchPublic(raw:string,signal?:AbortSignal):Promise<{html:string;url:string}>{
- let url=validateJobUrl(raw);const timeout=AbortSignal.timeout(15000);const combined=signal?AbortSignal.any([signal,timeout]):timeout;
- for(let i=0;i<4;i++){
-  const r=await fetch(url.toString(),{headers:{'User-Agent':'RoleBridge/1.0 (public job description reader)','Accept':'text/html,application/xhtml+xml'},redirect:'manual',signal:combined});
-  if([301,302,303,307,308].includes(r.status)){const location=r.headers.get('location');if(!location)throw new Error('공고 주소 이동을 확인할 수 없어요.');url=validateJobUrl(new URL(location,url).toString());continue;}
-  if(!r.ok)throw new Error(`채용 사이트가 요청을 허용하지 않았어요 (HTTP ${r.status}). 본문을 직접 넣어주세요.`);
-  if(!/text\/html|xhtml/i.test(r.headers.get('content-type')||''))throw new Error('공개 HTML 채용 페이지가 아니에요.');
-  if(Number(r.headers.get('content-length')||0)>2500000)throw new Error('페이지가 너무 커서 가져올 수 없어요. 개별 공고 링크를 사용해 주세요.');
-  const reader=r.body?.getReader();if(!reader)throw new Error('페이지 내용을 읽지 못했어요.');let size=0;const chunks:Uint8Array[]=[];
-  while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>2500000){await reader.cancel();throw new Error('페이지가 너무 커서 가져올 수 없어요.');}chunks.push(value);}
-  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
-  const charset=/euc-kr|ks_c_5601/i.test(r.headers.get('content-type')||'')?'euc-kr':'utf-8';
-  const html=new TextDecoder(charset).decode(bytes);
-  if(/captcha|access denied|비정상적인 접근|자동화된 접근|접근이 제한/.test(html.slice(0,16000).toLowerCase())&&html.length<30000)throw new Error('채용 사이트의 접근 제한으로 가져오지 못했어요. 본문을 직접 넣어주세요.');
-  return {html,url:url.toString()};
- }
- throw new Error('주소 이동이 너무 많아 공고를 가져오지 못했어요.');
-}
-function textOf(html:string){const {document}=parseHTML(`<html><body>${html}</body></html>`);document.querySelectorAll('script,style,noscript,nav,footer,header,form').forEach(x=>x.remove());document.querySelectorAll('br').forEach(x=>x.replaceWith('\n'));document.querySelectorAll('p,div,li,h1,h2,h3,h4,tr,section,article').forEach(x=>x.append('\n'));return (document.body.textContent||'').replace(/[ \t]+/g,' ').replace(/\n[ \t]+/g,'\n').replace(/\n{3,}/g,'\n\n').trim();}
-function findPosting(value:unknown):Record<string,unknown>|null{
- if(Array.isArray(value)){for(const v of value){const p=findPosting(v);if(p)return p;}}
- if(value&&typeof value==='object'){const v=value as Record<string,unknown>;if(v['@type']==='JobPosting'||Array.isArray(v['@type'])&&v['@type'].includes('JobPosting'))return v;if(v['@graph'])return findPosting(v['@graph']);}return null;
-}
-export function extractJob(html:string,url:string):ImportedJob{
- const {document}=parseHTML(html);let title=document.querySelector('h1')?.textContent?.trim()||document.querySelector('title')?.textContent?.trim()||'가져온 공고';let text='';
- for(const script of document.querySelectorAll('script[type="application/ld+json"]')){try{const p=findPosting(JSON.parse(script.textContent||''));if(p&&typeof p.description==='string'){title=typeof p.title==='string'?p.title:title;const org=p.hiringOrganization as {name?:string}|undefined;text=[title,org?.name,textOf(p.description),typeof p.qualifications==='string'?textOf(p.qualifications):'',typeof p.responsibilities==='string'?textOf(p.responsibilities):'',typeof p.experienceRequirements==='string'?p.experienceRequirements:''].filter(Boolean).join('\n\n');break;}}catch{}}
- if(!text){const selectors=['.jv_cont .jv_detail','.user_content','.recruit-detail','.recruitment-detail','#jobDescriptionText','.job-description','[class*="JobDescription_JobDescription"]','[class*="JobDetail_JobDetail"]','article'];for(const selector of selectors){const node=document.querySelector(selector);if(node){const t=textOf(node.innerHTML);if(t.length>100){text=title+'\n\n'+t;break;}}}}
- if(text.trim().length<100||!/(자격|업무|모집|경력|담당|우대|requirements|responsibilities|experience)/i.test(text))throw new Error('공고 본문이 이미지·동적 화면이거나 접근이 제한되어 있어요. 본문을 직접 넣어주세요.');
- if(text.length>16000)throw new Error('공고 본문이 16,000자를 넘어요. 주요 업무와 자격 요건을 직접 넣어주세요.');
- return {url,title:title.slice(0,160),text,source:new URL(url).hostname,fetchedAt:new Date().toISOString()};
-}
-export function extractSearch(html:string,raw:string):{links:JobLink[];nextPage:string|null}{
- const url=validateJobUrl(raw);const {document}=parseHTML(html);const map=new Map<string,JobLink>();
- const list=document.querySelector('#recruit_info_list');
- const anchors=list?list.querySelectorAll('.item_recruit .job_tit a[href]'):document.querySelectorAll('a[href]');
- for(const a of anchors){const href=a.getAttribute('href');if(!href)continue;try{const u=validateJobUrl(new URL(href,url).toString());let key='';if(u.hostname.endsWith('saramin.co.kr')){const id=u.searchParams.get('rec_idx');if(id&&/^\d+$/.test(id)){u.pathname='/zf_user/jobs/relay/view';u.search='?rec_idx='+id;key=u.toString();}}
- else if(u.hostname.endsWith('wanted.co.kr')&&/^\/wd\/\d+/.test(u.pathname)){u.search='';key=u.toString();}
- else if(u.hostname.endsWith('jobkorea.co.kr')&&/\/Recruit\/G(?:I|i)_Read\/\d+/i.test(u.pathname)){u.search='';key=u.toString();}
- else if(/\/position\/\d+/.test(u.pathname)){u.search='';key=u.toString();}
- const title=(a.getAttribute('title')||a.textContent||'채용공고').trim().replace(/\s+/g,' ').slice(0,160);if(key&&!map.has(key))map.set(key,{url:key,title,company:a.closest('.item_recruit')?.querySelector('.corp_name')?.textContent?.trim(),summary:a.closest('.item_recruit')?.querySelector('.job_condition')?.textContent?.trim().replace(/\s+/g,' ')});}catch{}}
- let nextPage:string|null=null;const rel=document.querySelector('a[rel="next"]')?.getAttribute('href');if(rel){try{const n=validateJobUrl(new URL(rel,url).toString());if(n.hostname===url.hostname)nextPage=n.toString();}catch{}}
- if(!nextPage&&url.hostname.endsWith('saramin.co.kr')&&/\/search\b/.test(url.pathname)){
-  const current=Number(url.searchParams.get('recruitPage')||1);const pageButton=document.querySelector(`.pagination a.page_move[page="${current+1}"]`);if(pageButton){const n=new URL(url);n.searchParams.set('recruitPage',String(current+1));nextPage=n.toString();}const next=document.querySelectorAll('a[href]');for(const a of next){try{const u=new URL(a.getAttribute('href')||'',url);if(u.searchParams.get('recruitPage')===String(current+1)&&u.hostname===url.hostname){nextPage=validateJobUrl(u.toString()).toString();break;}}catch{}}
+import { z } from 'zod';
 
+export type JobLink = { id: number; url: string; title: string; company?: string; summary?: string };
+export type ImportedJob = JobLink & { text: string; source: string; fetchedAt: string };
+const origin = 'https://www.wanted.co.kr';
+const searchPath = '/api/chaos/search/v1/position';
+const pageSize = 12;
+
+export function validateJobUrl(raw: string): URL {
+ let url: URL;
+ try { url = new URL(raw); } catch { throw new Error('올바른 원티드 공고 주소가 아니에요.'); }
+ if (url.protocol !== 'https:' || url.hostname !== 'www.wanted.co.kr' || url.username || url.password || (url.port && url.port !== '443') || !/^\/wd\/[1-9]\d*$/.test(url.pathname)) {
+  throw new Error('원티드의 공개 채용공고만 가져올 수 있어요.');
  }
- return {links:[...map.values()].slice(0,100),nextPage};
+ url.search = ''; url.hash = ''; return url;
+}
+
+async function readPublic(url: string, format: 'html' | 'json', signal?: AbortSignal): Promise<string> {
+ const timeout = AbortSignal.timeout(15000);
+ const response = await fetch(url, { headers: { 'User-Agent': 'RoleBridge/1.0 (public job description reader)', Accept: format === 'json' ? 'application/json' : 'text/html,application/xhtml+xml' }, redirect: 'manual', signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+ if (!response.ok) throw new Error(`원티드에서 정보를 가져오지 못했어요 (HTTP ${response.status}). 잠시 후 다시 검색해 주세요.`);
+ const contentType = response.headers.get('content-type') || '';
+ if (!(format === 'json' ? /application\/json/i : /text\/html|xhtml/i).test(contentType)) throw new Error('원티드 응답 형식을 확인할 수 없어요. 잠시 후 다시 검색해 주세요.');
+ if (Number(response.headers.get('content-length') || 0) > 2500000) throw new Error('원티드 응답이 너무 커서 가져오지 못했어요.');
+ const reader = response.body?.getReader();
+ if (!reader) throw new Error('원티드 응답을 읽지 못했어요.');
+ let size = 0; const chunks: Uint8Array[] = [];
+ while (true) {
+  const { done, value } = await reader.read(); if (done) break;
+  size += value.length;
+  if (size > 2500000) { await reader.cancel(); throw new Error('원티드 응답이 너무 커서 가져오지 못했어요.'); }
+  chunks.push(value);
+ }
+ const bytes = new Uint8Array(size); let offset = 0;
+ for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+ return new TextDecoder().decode(bytes);
+}
+export async function fetchPublic(raw: string, signal?: AbortSignal): Promise<{ html: string; url: string }> {
+ const url = validateJobUrl(raw).toString(); return { html: await readPublic(url, 'html', signal), url };
+}
+function careerLabel(from?: number | null, to?: number | null, newbie?: boolean) {
+ if (newbie && (to == null || to === 0)) return '신입';
+ if (newbie) return '신입·경력';
+ if (from === 0 && (to == null || to >= 100)) return '경력 무관';
+ if (from === 0) return `신입·경력${to ? ` ${to}년 이하` : ''}`;
+ if (from != null) return to != null && to < 100 ? `경력 ${from}~${to}년` : `경력 ${from}년 이상`;
+ return '경력 표기 확인 필요';
+}
+const searchSchema = z.object({
+ total_count: z.number().int().nonnegative(),
+ data: z.array(z.object({ id: z.number().int().positive(), position: z.string().min(1), company: z.object({ name: z.string() }), annual_from: z.number().nullable().optional(), annual_to: z.number().nullable().optional() })),
+ links: z.object({ next: z.string().nullable() }),
+});
+export function extractSearch(value: unknown, keyword: string, offset: number) {
+ const parsed = searchSchema.safeParse(value);
+ if (!parsed.success) throw new Error('원티드 검색결과 형식이 달라져 읽지 못했어요.');
+ const data = parsed.data; let nextOffset: number | null = null;
+ if (data.links.next) {
+  const next = new URL(data.links.next, origin); const nextValue = next.searchParams.get('offset');
+  const nextNumber = Number(nextValue);
+  if (next.origin !== origin || next.username || next.password || next.pathname !== searchPath || next.searchParams.getAll('query').length !== 1 || next.searchParams.get('query') !== keyword || next.searchParams.get('limit') !== String(pageSize) || !nextValue || !/^\d+$/.test(nextValue) || nextNumber !== offset + pageSize) throw new Error('원티드의 다음 검색결과를 확인하지 못했어요.');
+  if (data.data.length) nextOffset = nextNumber;
+ }
+ const links = [...new Map(data.data.map(job => [job.id, { id: job.id, url: `${origin}/wd/${job.id}`, title: job.position, company: job.company.name, summary: careerLabel(job.annual_from, job.annual_to) }])).values()];
+ return { links, nextOffset, total: data.total_count, source: `${origin}/search?query=${encodeURIComponent(keyword)}&tab=position` };
+}
+export async function searchWanted(keyword: string, offset = 0, signal?: AbortSignal) {
+ const url = new URL(searchPath, origin); url.searchParams.set('query', keyword); url.searchParams.set('limit', String(pageSize)); url.searchParams.set('offset', String(offset));
+ const body = await readPublic(url.toString(), 'json', signal);
+ let value: unknown; try { value = JSON.parse(body); } catch { throw new Error('원티드 검색결과를 읽지 못했어요.'); }
+ return extractSearch(value, keyword, offset);
+}
+function textOf(html: string) {
+ const { document } = parseHTML(`<html><body>${html}</body></html>`);
+ document.querySelectorAll('script,style,noscript,nav,footer,header,form').forEach(x => x.remove());
+ document.querySelectorAll('br').forEach(x => x.replaceWith('\n'));
+ document.querySelectorAll('p,div,li,h1,h2,h3,h4,tr,section,article').forEach(x => x.append('\n'));
+ return (document.body.textContent || '').replace(/\\n/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n[ \t]+/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+const wantedJobSchema = z.object({ id: z.number().int().positive(), position: z.string(), company: z.object({ company_name: z.string() }), status: z.string(), hidden: z.boolean().optional(), is_private: z.boolean().optional(), main_tasks: z.string(), requirements: z.string(), intro: z.string().nullish(), preferred_points: z.string().nullish(), career: z.object({ annual_from: z.number().nullable().optional(), annual_to: z.number().nullable().optional(), is_newbie: z.boolean().optional() }).optional() });
+export function extractJob(html: string, raw: string): ImportedJob {
+ const url = validateJobUrl(raw); const id = Number(url.pathname.split('/').pop());
+ const { document } = parseHTML(html);
+ // Wanted's JSON-LD contains main_tasks only. Use the page's public initialData
+ // so requirements and preferred_points cannot silently disappear from scoring.
+ let initial: unknown;
+ try { initial = JSON.parse(document.querySelector('#__NEXT_DATA__')?.textContent || '{}')?.props?.pageProps?.initialData; } catch { throw new Error('원티드 공고 본문을 읽지 못했어요.'); }
+ const parsed = wantedJobSchema.safeParse(initial);
+ if (!parsed.success) throw new Error('원티드 공고의 주요 업무와 자격 요건을 확인하지 못했어요.');
+ const job = parsed.data;
+ if (job.id !== id) throw new Error('검색한 공고와 상세 정보가 일치하지 않아요.');
+ if (job.status !== 'active' || job.hidden || job.is_private) throw new Error('마감되었거나 공개 중이 아닌 공고라 비교에서 제외했어요.');
+ const mainTasks = textOf(job.main_tasks), requirements = textOf(job.requirements), preferred = textOf(job.preferred_points || ''), intro = textOf(job.intro || '');
+ if (!mainTasks || !requirements) throw new Error('주요 업무 또는 자격 요건이 비어 있어 비교에서 제외했어요.');
+ const summary = job.career ? careerLabel(job.career.annual_from, job.career.annual_to, job.career.is_newbie) : undefined;
+ // Career metadata is display-only: it can conflict with the stated requirements.
+ const text = [job.position, job.company.company_name, '주요 업무', mainTasks, '자격 요건', requirements, ...(preferred ? ['우대 사항', preferred] : []), ...(intro ? ['회사·직무 소개', intro] : [])].join('\n\n');
+ if (text.length < 100) throw new Error('공고 본문이 너무 짧아 비교에서 제외했어요.');
+ if (text.length > 16000) throw new Error('공고 본문이 16,000자를 넘어 자동 비교에서 제외했어요.');
+ return { id, url: url.toString(), title: job.position.slice(0, 160), company: job.company.company_name, summary, text, source: '원티드', fetchedAt: new Date().toISOString() };
 }
