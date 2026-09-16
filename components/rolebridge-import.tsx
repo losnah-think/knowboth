@@ -17,7 +17,7 @@ export function SourceImporter({onBatch,onCandidates,onBusy}:{onBatch:(jobs:Impo
   for(let attempt=0;attempt<3;attempt++){
    try{
     const response=await fetch('/api/import-jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal});
-    const data=await response.json() as ImportResponse;
+    const data=await response.json().catch(()=>({error:'원티드 정보를 가져오는 중 일시적인 오류가 발생했어요.'})) as ImportResponse;
     if(response.ok)return data;
     if((data.retryable||response.status>=500)&&attempt<2){await pause(1500*(attempt+1),signal);continue;}
     throw new Error(data.error||'원티드 정보를 읽지 못했어요.');

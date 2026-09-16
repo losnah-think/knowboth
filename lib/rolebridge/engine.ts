@@ -36,6 +36,7 @@ const performed=/작성했|작성하고|구현했|구현하고|개발했|개발�
 const artifact=/문서|기록|프로토타입|스크립트|프로젝트|서비스|앱|보고서|저장소|쿼리|대시보드|\d+명|\d+건/;
 function lines(text:string){return text.split(/\n+/).map(x=>x.trim()).filter(Boolean);}
 function sentences(text:string){return text.split(/\n+|(?<=[.!?。])\s+|(?<=지만)\s+|[;；]\s*|(?:그리고|하지만)\s+/).map(x=>x.trim()).filter(x=>x&&!injection.test(x));}
+function excerpt(text:string,re:RegExp){if(text.length<=2400)return text;const start=Math.max(0,text.search(re)-400);return text.slice(start,start+2400);}
 function classify(q:string,career:AnalysisInput['career'],jobQuote:string):Requirement['status']{
  if(!q)return 'unknown';
  if(negative.test(q))return learning.test(q)?'partial':'gap';
@@ -52,21 +53,21 @@ export function analyzeLocal(raw:AnalysisInput):Report{
  for(const line of jobLines){if(line==='회사·직무 소개'){contextOnly=true;continue;}if(contextOnly||injection.test(line))continue;if(/^(우대 사항|우대사항|우대 조건|우대조건|Preferred)\s*[:：]?$/i.test(line)){section='preferred';continue;}if(/^(자격 요건|자격요건|필수 사항|필수사항|필수 요건|자격 조건|Requirements)\s*[:：]?$/i.test(line)){section='required';continue;}if(/^(주요 업무|주요업무|담당 업무|담당업무|Responsibilities)\s*[:：]?$/i.test(line)){section='core_work';continue;}rows.push({quote:line,importance:/우대/.test(line)?'preferred':section});}
  const requirements:Requirement[]=[];
  for(const s of skills){const matched=rows.filter(x=>s.re.test(x.quote)&&!/^\[/.test(x.quote));if(!matched.length)continue;matched.sort((a,b)=>({required:3,core_work:2,preferred:1}[b.importance]-{required:3,core_work:2,preferred:1}[a.importance]));const row=matched[0];
- const candidates=expLines.filter(x=>s.re.test(x));const q=candidates.find(x=>negative.test(x))||candidates.find(x=>performed.test(x))||candidates[0]||'';
+ const candidates=expLines.filter(x=>s.re.test(x));const fullQuote=candidates.find(x=>negative.test(x))||candidates.find(x=>performed.test(x))||candidates[0]||'';const q=excerpt(fullQuote,s.re);
  const contradictory=candidates.some(x=>negative.test(x))&&candidates.some(x=>performed.test(x)&&!negative.test(x));
  const otherSkillNegation=negative.test(q)&&skills.some(other=>other.name!==s.name&&other.re.test(q));
- const status=contradictory||otherSkillNegation?'unknown':classify(q,input.career,row.quote);
- requirements.push({id:`r${requirements.length+1}`,skill:s.name,importance:row.importance,jobQuote:row.quote,status,evidenceQuote:q,reason:status==='met'?'직접 수행한 행동과 산출물이 입력에 있습니다. 실제 요구 수준은 원문과 함께 확인해 주세요.':status==='partial'?'관련 학습 또는 일부 수행 근거가 있습니다. 요구 범위 전체를 충족하는지 추가 확인이 필요합니다.':status==='gap'?'입력에서 아직 수행하지 못한 경험임을 명시했습니다.':'이 경험을 했는지 판단할 구체적 근거가 아직 없습니다.',question:`${s.name}와 관련해 직접 한 행동, 본인의 역할, 만든 결과물을 알려주세요.${input.career==='entry'?' 수업·개인 프로젝트도 괜찮아요.':' 공고가 요구하는 운영·책임 범위도 설명해 주세요.'}`,task:s.task,deliverable:s.artifact});
+ const status=fullQuote.length>2400||row.quote.length>2400||contradictory||otherSkillNegation?'unknown':classify(q,input.career,row.quote);
+ requirements.push({id:`r${requirements.length+1}`,skill:s.name,importance:row.importance,jobQuote:excerpt(row.quote,s.re),status,evidenceQuote:q,reason:status==='met'?'직접 수행한 행동과 산출물이 입력에 있습니다. 실제 요구 수준은 원문과 함께 확인해 주세요.':status==='partial'?'관련 학습 또는 일부 수행 근거가 있습니다. 요구 범위 전체를 충족하는지 추가 확인이 필요합니다.':status==='gap'?'입력에서 아직 수행하지 못한 경험임을 명시했습니다.':'이 경험을 했는지 판단할 구체적 근거가 아직 없습니다.',question:`${s.name}와 관련해 직접 한 행동, 본인의 역할, 만든 결과물을 알려주세요.${input.career==='entry'?' 수업·개인 프로젝트도 괜찮아요.':' 공고가 요구하는 운영·책임 범위도 설명해 주세요.'}`,task:s.task,deliverable:s.artifact});
  }
  const conditions:Report['conditions']=[];
- for(const row of rows){const m=row.quote.match(/(\d+)\s*년\s*(이상|이상 필수)/);if(m&&/경력|실무 경험|업무 경험/.test(row.quote)&&!/우리|회사|설립|업력|기업 고객|서비스를 제공/.test(row.quote)&&row.importance!=='preferred'&&seniority!=='mixed'){
+ for(const row of rows){if(conditions.length>=12)break;const m=row.quote.match(/(\d+)\s*년\s*(이상|이상 필수)/);if(m&&/경력|실무 경험|업무 경험/.test(row.quote)&&!/우리|회사|설립|업력|기업 고객|서비스를 제공/.test(row.quote)&&row.importance!=='preferred'&&seniority!=='mixed'){
  const min=Number(m[1]);const specific=/개발|기획|PM|디자인|운영|SQL|Python|React|FDE|AX|관련|해당/i.test(row.quote);const known=input.career==='entry'||(!specific&&input.years!==null);const yrs=input.career==='entry'?0:input.years||0;
- conditions.push({label:`업무 경력 ${min}년 이상`,jobQuote:row.quote,status:known?(yrs>=min?'pass':'fail'):'unknown',reason:known?`입력한 업무 경력 ${yrs}년과 비교했습니다. 프로젝트·수업 기간은 업무 경력에 포함하지 않습니다.`:specific?'특정 직무 경력은 전체 업무 연차만으로 확인할 수 없어요. 해당 업무의 기간을 확인해 주세요.':'업무 경력 기간을 입력하면 확인할 수 있어요.'});}}
+ conditions.push({label:`업무 경력 ${min}년 이상`,jobQuote:excerpt(row.quote,/\d+\s*년/),status:known?(yrs>=min?'pass':'fail'):'unknown',reason:known?`입력한 업무 경력 ${yrs}년과 비교했습니다. 프로젝트·수업 기간은 업무 경력에 포함하지 않습니다.`:specific?'특정 직무 경력은 전체 업무 연차만으로 확인할 수 없어요. 해당 업무의 기간을 확인해 주세요.':'업무 경력 기간을 입력하면 확인할 수 있어요.'});}}
  const domains:Report['domains']=[];const connections=[{domain:'B2B SaaS',re:/리서치|요구사항|협업/,reason:'사용자의 불편을 발견하고 요구사항으로 정리하는 경험은 기업 고객의 복잡한 업무를 제품으로 옮기는 데 쓰입니다.',caveat:'구매자와 실제 사용자가 다를 수 있어요. 의사결정과 권한 구조는 별도 학습이 필요합니다.',experiment:'B2B 제품 하나를 골라 사용자·관리자·구매자의 목표를 비교해 보세요.'},{domain:'에듀테크',re:/실험|데이터|Figma|리서치/,reason:'사용자 행동을 관찰하고 흐름을 설계하는 경험을 학습 과정의 이탈 문제에 적용할 수 있습니다.',caveat:'학습 성과와 서비스 이용량은 다른 지표예요. 실제 학습 효과는 추가로 확인해야 합니다.',experiment:'학습 서비스의 첫 수업 흐름을 분석하고 학습자 2명에게 이탈 이유를 물어보세요.'},{domain:'업무 생산성 · AX',re:/Python|자동화|API|LLM/,reason:'반복 과정을 코드로 바꾼 경험을 현업의 수작업과 정보 전달 문제에 연결할 수 있습니다.',caveat:'예외 상황, 데이터 권한과 실제 사용자의 도입 의사를 확인해야 해요.',experiment:'주변 사람의 반복 업무 하나를 관찰하고 입력·출력·예외를 적어보세요.'}];
  for(const c of connections){const r=requirements.find(x=>c.re.test(x.skill)&&['met','partial'].includes(x.status));if(r)domains.push({domain:c.domain,evidenceQuote:r.evidenceQuote,reason:c.reason,caveat:c.caveat,experiment:c.experiment});}
  const evidence=[...new Set(requirements.filter(x=>x.status==='met').map(x=>x.evidenceQuote))].slice(0,3);
  const resume=evidence.map(q=>({before:q,after:q.replace(/했습니다/g,'함').replace(/만들었습니다/g,'제작함'),question:'이 경험에서 본인이 결정한 부분과 결과를 확인할 수 있는 자료는 무엇인가요? 확인한 사실만 추가해 주세요.'}));
- const report:Report={title:jobLines[0]?.slice(0,160)||'직접 입력한 공고',summary:input.experience.trim()?'공고가 요구하는 일에 내 경험을 연결했어요. 확인된 근거와 아직 답이 필요한 부분을 함께 살펴보세요.':'먼저 공고의 요구 사항을 정리했어요. 아래 확인 질문에 답하면 내 경험과 연결할 수 있어요.',seniority,requirements,conditions,domains,resume,limitations:['기본 분석은 사전·문장 규칙을 사용합니다. 문맥·부정 표현·복합 요구를 완전히 이해하지 못할 수 있어요.','등록된 IT 역량만 추출하므로 공고의 모든 요구 사항을 포함하지 않을 수 있습니다. 비율의 분모는 추출된 항목입니다.','근거는 사용자 자기 보고이며 외부 검증이나 합격 확률을 의미하지 않습니다.']};
+ const report:Report={title:jobLines[0]?.slice(0,160)||'직접 입력한 공고',summary:input.experience.trim()?'공고가 요구하는 일에 내 경험을 연결했어요. 확인된 근거와 아직 답이 필요한 부분을 함께 살펴보세요.':'먼저 공고의 요구 사항을 정리했어요. 아래 확인 질문에 답하면 내 경험과 연결할 수 있어요.',seniority,requirements,conditions,domains,resume,limitations:['긴 문장의 인용은 원문 일부만 표시하며, 맥락이 잘릴 수 있는 역량은 미확인으로 처리합니다.','기본 분석은 사전·문장 규칙을 사용합니다. 문맥·부정 표현·복합 요구를 완전히 이해하지 못할 수 있어요.','등록된 IT 역량만 추출하므로 공고의 모든 요구 사항을 포함하지 않을 수 있습니다. 비율의 분모는 추출된 항목입니다.','근거는 사용자 자기 보고이며 외부 검증이나 합격 확률을 의미하지 않습니다.']};
  if(!requirements.length)return report;
  return validateEvidence(report,input);
 }
