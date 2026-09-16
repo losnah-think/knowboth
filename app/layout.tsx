@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import RoleBridgeWorkflow from "@/components/rolebridge-workflow";
 
 export const metadata: Metadata = {
   title: "RoleBridge · 공고에서 찾는 나의 가능성",
@@ -17,7 +18,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased"><RoleBridgeWorkflow>{children}</RoleBridgeWorkflow></body>
     </html>
   );
 }
