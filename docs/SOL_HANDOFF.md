@@ -115,8 +115,8 @@ curl -sSI https://YOUR_DOMAIN/fonts/NanumGothic-Bold.ttf
 | 공고 조사 함수 | `maxDuration = 60`, 앱 자체 제한 50초 |
 | 기업·보고서 분석 함수 | `maxDuration = 120`, 앱 자체 제한 110초 |
 | 응답 방식 | 공고 조사는 `{ status: "ready", job, jobProof }`, 최종 분석은 `{ report }` JSON 반환 |
-| AI 호출 | 일반적인 새 분석은 공고 조사 1회 + 기업 조사 1회 + 보고서 생성 1회. 불완전한 공고 응답만 1회 재시도 |
-| 자동 재시도 | 불완전한 공고 조사만 1회, 최종 분석은 없음 |
+| AI 호출 | 일반적인 새 분석은 공고 조사 1회 + 기업 조사 1회 + 보고서 생성 1회. 각 단계는 최대 3회 시도 |
+| 자동 재시도 | 일시적 API 오류·요청 제한·결과 검증 실패는 단계별 총 3회. 설정·입력 오류, AI 거절, 취소·시간 초과는 즉시 종료 |
 | 공고 조사 입력 | 엄격한 `{ url }` JSON, 요청 2KB 이하 |
 | 조사된 공고·경험 | 각각 최대 20,000자 |
 | 최종 분석 입력 | UTF-8 160KB 이하, HTTP 요청 170KB에서 추가 차단 |
@@ -124,7 +124,7 @@ curl -sSI https://YOUR_DOMAIN/fonts/NanumGothic-Bold.ttf
 | 저장소 | 서버 DB 없음. 실제 완료 보고서만 브라우저 `localStorage`에 최대 10개·직렬화 약 200만 자 범위로 보관 |
 | 배포 접근 제어 | 별도 접근 코드 없음. 동일 출처 검사와 `jobProof` 변조 검증 유지 |
 
-공고 조사는 OpenAI Responses API 한 번 안에서 최대 3회의 웹 검색 도구 호출을 허용하고, 결과가 불완전하거나 검색이 일시적으로 실패한 경우 요청 전체를 한 번만 재시도한다. 법인 후보를 선택해 다시 분석하면 기업 조사와 보고서 생성 호출이 추가된다. Vercel 요금제의 함수 실행 한도가 각 라우트의 선언값보다 짧으면 플랫폼이 먼저 요청을 종료한다. 배포할 Team의 Functions 설정과 사용량을 확인한다. 라우트별 `maxDuration` 방식은 [Vercel Functions duration 문서](https://vercel.com/docs/functions/configuring-functions/duration)를 참고한다.
+공고 조사 호출 한 번은 OpenAI Responses API에서 최대 3회의 웹 검색 도구 호출을 허용한다. 공고 조사, 기업 조사, 보고서 생성은 각각 실패 시 총 3회까지 자동 재시도하므로 새 분석은 정상적으로 3회, 최악의 경우 최대 9회의 AI 호출을 만들 수 있다. 법인 후보를 선택해 다시 분석하면 기업 조사와 보고서 생성 호출이 추가된다. 모든 재시도는 기존 요청 시간 제한을 공유하며, 사용자 취소나 시간 초과가 발생하면 즉시 종료한다. Vercel 요금제의 함수 실행 한도가 각 라우트의 선언값보다 짧으면 플랫폼이 먼저 요청을 종료한다. 배포할 Team의 Functions 설정과 사용량을 확인한다. 라우트별 `maxDuration` 방식은 [Vercel Functions duration 문서](https://vercel.com/docs/functions/configuring-functions/duration)를 참고한다.
 
 ## 개인정보와 비용
 

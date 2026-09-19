@@ -48,6 +48,13 @@ const researchSchema = z.object({
 
 export type CompanyResearch = z.infer<typeof researchSchema>;
 
+export class OpenAIError extends Error {
+  constructor(message: string, public readonly retryable: boolean) {
+    super(message);
+    this.name = "OpenAIError";
+  }
+}
+
 type ApiOutput = {
   status?: string;
   error?: { message?: string } | null;
@@ -104,31 +111,37 @@ function model() {
 
 async function responseRequest(body: Record<string, unknown>, signal: AbortSignal): Promise<ApiOutput> {
   const key = process.env.OPENAI_API_KEY?.trim();
-  if (!key) throw new Error("OPENAI_API_KEY가 설정되지 않았어요.");
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: model(), store: false, ...body }),
-    signal,
-  });
+  if (!key) throw new OpenAIError("OPENAI_API_KEY가 설정되지 않았어요.", false);
+  let response: Response;
+  try {
+    response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: model(), store: false, ...body }),
+      signal,
+    });
+  } catch (error) {
+    if (signal.aborted) throw error;
+    throw new OpenAIError("AI 서비스에 일시적인 문제가 생겼어요. 잠시 후 다시 시도해 주세요.", true);
+  }
   const data = await response.json().catch(() => ({})) as ApiOutput;
   if (!response.ok) {
-    if (response.status === 401) throw new Error("OpenAI API 키를 확인해 주세요.");
-    if (response.status === 429) throw new Error("AI 요청 한도에 도달했어요. 잠시 후 다시 시도해 주세요.");
-    if (response.status === 400 || response.status === 404) throw new Error("설정한 AI 모델이 웹 검색과 구조화 출력을 지원하는지 확인해 주세요.");
-    throw new Error("AI 서비스에 일시적인 문제가 생겼어요. 잠시 후 다시 시도해 주세요.");
+    if (response.status === 401 || response.status === 403) throw new OpenAIError("OpenAI API 키를 확인해 주세요.", false);
+    if (response.status === 429) throw new OpenAIError("AI 요청 한도에 도달했어요. 잠시 후 다시 시도해 주세요.", true);
+    if (response.status === 400 || response.status === 404) throw new OpenAIError("설정한 AI 모델이 웹 검색과 구조화 출력을 지원하는지 확인해 주세요.", false);
+    throw new OpenAIError("AI 서비스에 일시적인 문제가 생겼어요. 잠시 후 다시 시도해 주세요.", true);
   }
-  if (data.status === "incomplete") throw new Error(`AI 응답이 완료되지 않았어요${data.incomplete_details?.reason ? `: ${data.incomplete_details.reason}` : "."}`);
-  if (data.status && data.status !== "completed") throw new Error("AI 응답이 완료되지 않았어요.");
+  if (data.status === "incomplete") throw new OpenAIError(`AI 응답이 완료되지 않았어요${data.incomplete_details?.reason ? `: ${data.incomplete_details.reason}` : "."}`, true);
+  if (data.status && data.status !== "completed") throw new OpenAIError("AI 응답이 완료되지 않았어요.", true);
   return data;
 }
 
 function outputText(data: ApiOutput) {
   const contents = (data.output || []).flatMap(item => item.type === "message" ? item.content || [] : []);
   const refusal = contents.find(item => item.type === "refusal")?.refusal;
-  if (refusal) throw new Error("AI가 이 입력을 분석할 수 없다고 응답했어요.");
+  if (refusal) throw new OpenAIError("AI가 이 입력을 분석할 수 없다고 응답했어요.", false);
   const text = contents.filter(item => item.type === "output_text").map(item => item.text || "").join("");
-  if (!text) throw new Error("AI 응답에 분석 결과가 없어요.");
+  if (!text) throw new OpenAIError("AI 응답에 분석 결과가 없어요.", true);
   return text;
 }
 
@@ -288,8 +301,10 @@ export async function researchCompany(job: JobForAnalysis, signal: AbortSignal, 
     max_output_tokens: 5000,
   }, signal);
   let raw: unknown;
-  try { raw = normalizeModelOutput(JSON.parse(outputText(data))); } catch { throw new Error("기업 조사 결과를 읽지 못했어요."); }
-  return verifiedResearch(raw, data);
+  try { raw = normalizeModelOutput(JSON.parse(outputText(data))); }
+  catch (error) { if (error instanceof OpenAIError) throw error; throw new OpenAIError("기업 조사 결과를 읽지 못했어요.", true); }
+  try { return verifiedResearch(raw, data); }
+  catch { throw new OpenAIError("기업 조사 결과를 읽지 못했어요.", true); }
 }
 
 export async function analyzeJob(job: JobForAnalysis, profile: ProfileForAnalysis, research: CompanyResearch, signal: AbortSignal) {
@@ -306,7 +321,8 @@ export async function analyzeJob(job: JobForAnalysis, profile: ProfileForAnalysi
     max_output_tokens: 7000,
   }, signal);
   let raw: unknown;
-  try { raw = normalizeModelOutput(JSON.parse(outputText(data))); } catch { throw new Error("분석 보고서를 읽지 못했어요."); }
+  try { raw = normalizeModelOutput(JSON.parse(outputText(data))); }
+  catch (error) { if (error instanceof OpenAIError) throw error; throw new OpenAIError("분석 보고서를 읽지 못했어요.", true); }
   if (raw && typeof raw === "object") (raw as Record<string, unknown>).sources = sources;
   return raw;
 }

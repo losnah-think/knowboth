@@ -52,7 +52,7 @@ type ApiOutput = {
 const MAX_WANTED_HTML_BYTES = 1_000_000;
 
 export class JobResearchError extends Error {
-  constructor(public readonly code: "configuration" | "rate_limit" | "upstream" | "not_found" | "invalid_response") {
+  constructor(public readonly code: "configuration" | "rate_limit" | "upstream" | "not_found" | "invalid_response" | "refusal") {
     super(code);
   }
 }
@@ -88,7 +88,7 @@ export function hasRequestedPostingSource(canonicalUrl: string, sourceUrls: stri
 
 function outputText(data: ApiOutput) {
   const contents = (data.output || []).flatMap(item => item.type === "message" ? item.content || [] : []);
-  if (contents.some(item => item.type === "refusal" && item.refusal)) throw new JobResearchError("invalid_response");
+  if (contents.some(item => item.type === "refusal" && item.refusal)) throw new JobResearchError("refusal");
   const text = contents.filter(item => item.type === "output_text").map(item => item.text || "").join("");
   if (!text) throw new JobResearchError("invalid_response");
   return text;
@@ -230,13 +230,15 @@ export async function researchWantedJob(canonicalUrl: string, signal: AbortSigna
   if (normalizeWantedJobUrl(canonicalUrl) !== canonicalUrl) throw new JobResearchError("not_found");
   const postingId = canonicalUrl.split("/").at(-1)!;
   const wantedPageText = await fetchWantedPageText(canonicalUrl, signal);
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL?.trim() || "gpt-5.6-luna",
-      store: false,
-      instructions: `당신은 공개 채용공고 수집기다. 입력으로 받은 정확한 원티드 공고 URL을 웹 검색으로 열어 회사명, 포지션명, 주요 업무, 자격요건, 우대사항을 수집한다.
+  let response: Response;
+  try {
+    response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL?.trim() || "gpt-5.6-luna",
+        store: false,
+        instructions: `당신은 공개 채용공고 수집기다. 입력으로 받은 정확한 원티드 공고 URL을 웹 검색으로 열어 회사명, 포지션명, 주요 업무, 자격요건, 우대사항을 수집한다.
 
 규칙:
 - 반드시 입력 URL과 같은 /wd/ 공고 번호의 페이지를 조사한다. 비슷한 다른 공고의 내용을 섞지 않는다.
@@ -245,23 +247,27 @@ export async function researchWantedJob(canonicalUrl: string, signal: AbortSigna
 - 우대사항이 없으면 preferredQualifications는 빈 배열로 둔다.
 - 공고가 비공개, 삭제, 접근 불가이거나 주요 업무와 자격요건을 확인하지 못하면 내용을 추측하지 말고 빈 배열로 둔다.
 - URL은 출력하지 않는다. 지정된 JSON 스키마만 반환한다.`,
-      input: `다음 원티드 공고를 조사하세요: ${canonicalUrl}`,
-      tools: [{
-        type: "web_search",
-        search_context_size: "high",
-        filters: { allowed_domains: ["wanted.co.kr"] },
-      }],
-      tool_choice: "required",
-      max_tool_calls: 3,
-      include: ["web_search_call.action.sources"],
-      text: { format: { type: "json_schema", name: "wanted_job_posting", strict: true, schema: outputSchema } },
-      max_output_tokens: 4_000,
-    }),
-    signal,
-  });
+        input: `다음 원티드 공고를 조사하세요: ${canonicalUrl}`,
+        tools: [{
+          type: "web_search",
+          search_context_size: "high",
+          filters: { allowed_domains: ["wanted.co.kr"] },
+        }],
+        tool_choice: "required",
+        max_tool_calls: 3,
+        include: ["web_search_call.action.sources"],
+        text: { format: { type: "json_schema", name: "wanted_job_posting", strict: true, schema: outputSchema } },
+        max_output_tokens: 4_000,
+      }),
+      signal,
+    });
+  } catch (error) {
+    if (signal.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
+    throw new JobResearchError("upstream");
+  }
   const data = await response.json().catch(() => ({})) as ApiOutput;
   if (!response.ok) {
-    if (response.status === 401 || response.status === 403) throw new JobResearchError("configuration");
+    if ([400, 401, 403, 404].includes(response.status)) throw new JobResearchError("configuration");
     if (response.status === 429) throw new JobResearchError("rate_limit");
     throw new JobResearchError("upstream");
   }

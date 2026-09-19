@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { analyzeInputSchema, reportSchema, type AnalyzeInput } from "@/lib/knowboth/schema";
 import { validateReportEvidence } from "@/lib/knowboth/evidence";
-import { analyzeJob, researchCompany, type CompanyResearch } from "@/lib/knowboth/openai";
+import { analyzeJob, OpenAIError, researchCompany, type CompanyResearch } from "@/lib/knowboth/openai";
 import { normalizeWantedJobUrl } from "@/lib/knowboth/job-research";
 import { verifyJobProof } from "@/lib/knowboth/job-proof";
 
@@ -11,6 +11,22 @@ export const dynamic = "force-dynamic";
 
 const headers = { "Cache-Control": "no-store", "Content-Type": "application/json; charset=utf-8" };
 const reply = (value: unknown, status = 200) => Response.json(value, { status, headers });
+const MAX_AI_ATTEMPTS = 3;
+
+function retryableAIError(error: unknown) {
+  return error instanceof OpenAIError ? error.retryable : error instanceof z.ZodError;
+}
+
+async function regenerateUpToThreeTimes<T>(run: () => Promise<T>, signal: AbortSignal) {
+  for (let attempt = 1; attempt <= MAX_AI_ATTEMPTS; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      if (signal.aborted || !retryableAIError(error) || attempt === MAX_AI_ATTEMPTS) throw error;
+    }
+  }
+  throw new Error("AI 결과를 생성하지 못했어요.");
+}
 
 export async function GET() {
   return reply({
@@ -86,7 +102,7 @@ export async function POST(request: Request) {
   try {
     const research = input.companyResolution === "skip_financials"
       ? skippedResearch(input)
-      : await researchCompany(input.job, activeSignal, input.companyHint);
+      : await regenerateUpToThreeTimes(() => researchCompany(input.job, activeSignal, input.companyHint), activeSignal);
     if (input.companyResolution === "auto" && research.identity.status === "ambiguous" && research.identity.candidates.length > 0) {
       return reply({
         type: "needs_company",
@@ -102,31 +118,33 @@ export async function POST(request: Request) {
       return reply({ error: "선택한 법인과 조사 결과가 일치하지 않아 매출 분석을 중단했어요. 회사명을 확인해 주세요." }, 409);
     }
     activeSignal = AbortSignal.any([request.signal, deadline, AbortSignal.timeout(50_000)]);
-    const rawReport = await analyzeJob(input.job, input.profile, research, activeSignal);
-    if (!rawReport || typeof rawReport !== "object") throw new Error("분석 보고서가 비어 있어요.");
-    const normalized = {
-      ...(rawReport as Record<string, unknown>),
-      schemaVersion: "1.0",
-      analysisId: crypto.randomUUID(),
-      generatedAt: new Date().toISOString(),
-      job: input.job,
-      companyIdentity: {
-        displayName: research.identity.displayName,
-        legalName: research.identity.legalName,
-        website: research.identity.website,
-        corpCode: research.identity.corpCode,
-        status: research.identity.status,
-        evidenceSourceIds: research.identity.sourceIds,
-        candidates: research.identity.candidates.map(candidate => ({
-          displayName: candidate.displayName,
-          legalName: candidate.legalName,
-          website: candidate.website,
-          evidenceSourceIds: candidate.sourceIds,
-        })),
-      },
-      revenue: research.revenue,
-    };
-    const report = validateReportEvidence(reportSchema.parse(normalized), input);
+    const report = await regenerateUpToThreeTimes(async () => {
+      const rawReport = await analyzeJob(input.job, input.profile, research, activeSignal);
+      if (!rawReport || typeof rawReport !== "object") throw new OpenAIError("분석 보고서가 비어 있어요.", true);
+      const normalized = {
+        ...(rawReport as Record<string, unknown>),
+        schemaVersion: "1.0",
+        analysisId: crypto.randomUUID(),
+        generatedAt: new Date().toISOString(),
+        job: input.job,
+        companyIdentity: {
+          displayName: research.identity.displayName,
+          legalName: research.identity.legalName,
+          website: research.identity.website,
+          corpCode: research.identity.corpCode,
+          status: research.identity.status,
+          evidenceSourceIds: research.identity.sourceIds,
+          candidates: research.identity.candidates.map(candidate => ({
+            displayName: candidate.displayName,
+            legalName: candidate.legalName,
+            website: candidate.website,
+            evidenceSourceIds: candidate.sourceIds,
+          })),
+        },
+        revenue: research.revenue,
+      };
+      return validateReportEvidence(reportSchema.parse(normalized), input);
+    }, activeSignal);
     return reply({ report });
   } catch (error) {
     if (activeSignal.aborted || deadline.aborted || request.signal.aborted) return reply({ error: "분석 시간이 길어져 중단했어요. 입력은 그대로 두고 다시 시도해 주세요." }, 504);

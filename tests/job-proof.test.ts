@@ -82,7 +82,7 @@ test("job API returns a verifiable proof with the researched job", async () => {
   }
 });
 
-test("job API retries one invalid model response before failing the request", async () => {
+test("job API retries transient failures and stops after three attempts", async () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.OPENAI_API_KEY;
   const originalVercel = process.env.VERCEL;
@@ -90,13 +90,14 @@ test("job API retries one invalid model response before failing the request", as
   process.env.VERCEL = "1";
   let openAICalls = 0;
   let wantedCalls = 0;
+  let succeedsOn = 3;
   globalThis.fetch = async input => {
     if (isWantedRequest(input)) {
       wantedCalls += 1;
       return new Response(wantedPageHtml, { status: 200, headers: { "Content-Type": "text/html" } });
     }
     openAICalls += 1;
-    const valid = openAICalls === 2;
+    const valid = openAICalls === succeedsOn;
     return new Response(JSON.stringify({
       status: "completed",
       output: [
@@ -121,8 +122,63 @@ test("job API retries one invalid model response before failing the request", as
       body: JSON.stringify({ url: job.sourceUrl }),
     }));
     assert.equal(response.status, 200);
-    assert.equal(openAICalls, 2);
-    assert.equal(wantedCalls, 2);
+    assert.equal(openAICalls, 3);
+    assert.equal(wantedCalls, 3);
+
+    openAICalls = 0;
+    wantedCalls = 0;
+    succeedsOn = Number.POSITIVE_INFINITY;
+    const failed = await researchJob(new Request("http://localhost/api/job", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: job.sourceUrl }),
+    }));
+    assert.equal(failed.status, 502);
+    assert.equal(openAICalls, 3);
+    assert.equal(wantedCalls, 3);
+
+    openAICalls = 0;
+    wantedCalls = 0;
+    globalThis.fetch = async input => {
+      if (isWantedRequest(input)) {
+        wantedCalls += 1;
+        return new Response(wantedPageHtml, { status: 200, headers: { "Content-Type": "text/html" } });
+      }
+      openAICalls += 1;
+      return new Response("{}", { status: 400, headers: { "Content-Type": "application/json" } });
+    };
+    const configurationError = await researchJob(new Request("http://localhost/api/job", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: job.sourceUrl }),
+    }));
+    assert.equal(configurationError.status, 503);
+    assert.equal((await configurationError.json()).retryable, false);
+    assert.equal(openAICalls, 1);
+    assert.equal(wantedCalls, 1);
+
+    openAICalls = 0;
+    wantedCalls = 0;
+    globalThis.fetch = async input => {
+      if (isWantedRequest(input)) {
+        wantedCalls += 1;
+        return new Response(wantedPageHtml, { status: 200, headers: { "Content-Type": "text/html" } });
+      }
+      openAICalls += 1;
+      return new Response(JSON.stringify({
+        status: "completed",
+        output: [{ type: "message", content: [{ type: "refusal", refusal: "cannot comply" }] }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+    const refusal = await researchJob(new Request("http://localhost/api/job", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: job.sourceUrl }),
+    }));
+    assert.equal(refusal.status, 502);
+    assert.equal((await refusal.json()).retryable, false);
+    assert.equal(openAICalls, 1);
+    assert.equal(wantedCalls, 1);
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv("OPENAI_API_KEY", originalKey);
@@ -130,7 +186,7 @@ test("job API retries one invalid model response before failing the request", as
   }
 });
 
-test("analyze API rejects missing, tampered, and browser-edited jobs before AI calls", async () => {
+test("analyze API validates jobs before retrying generation up to three times", async () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.OPENAI_API_KEY;
   const originalVercel = process.env.VERCEL;
@@ -158,6 +214,14 @@ test("analyze API rejects missing, tampered, and browser-edited jobs before AI c
     assert.equal((await request({ ...job, sourceUrl: null }, createJobProof({ ...job, sourceUrl: null }, secret))).status, 400);
     assert.equal(fetchCalls, 0);
 
+    assert.equal((await request(job, proof)).status, 502);
+    assert.equal(fetchCalls, 3);
+
+    fetchCalls = 0;
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      return new Response("{}", { status: 401, headers: { "Content-Type": "application/json" } });
+    };
     assert.equal((await request(job, proof)).status, 502);
     assert.equal(fetchCalls, 1);
   } finally {
