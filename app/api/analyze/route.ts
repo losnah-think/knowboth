@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { createHash, timingSafeEqual } from "node:crypto";
 import { analyzeInputSchema, reportSchema, type AnalyzeInput } from "@/lib/knowboth/schema";
 import { validateReportEvidence } from "@/lib/knowboth/evidence";
 import { analyzeJob, researchCompany, type CompanyResearch } from "@/lib/knowboth/openai";
@@ -17,13 +16,7 @@ export async function GET() {
   return reply({
     available: Boolean(process.env.OPENAI_API_KEY?.trim()),
     modelConfigured: Boolean(process.env.OPENAI_MODEL?.trim()),
-    accessRequired: Boolean(process.env.ANALYZE_ACCESS_TOKEN?.trim()) || process.env.VERCEL === "1",
   });
-}
-
-function sameSecret(left: string, right: string) {
-  const digest = (value: string) => createHash("sha256").update(value).digest();
-  return timingSafeEqual(digest(left), digest(right));
 }
 
 function normalizedCompanyName(value: string | null) {
@@ -66,13 +59,6 @@ function skippedResearch(input: AnalyzeInput): CompanyResearch {
 export async function POST(request: Request) {
   const origin = request.headers.get("origin");
   if (origin && origin !== new URL(request.url).origin) return reply({ error: "이 사이트의 분석 화면에서 요청해 주세요." }, 403);
-  const accessToken = process.env.ANALYZE_ACCESS_TOKEN?.trim();
-  if (process.env.VERCEL === "1" && !accessToken) {
-    return reply({ error: "배포 환경에 ANALYZE_ACCESS_TOKEN을 설정해 주세요." }, 503);
-  }
-  if (accessToken && !sameSecret(request.headers.get("x-knowboth-access") || "", accessToken)) {
-    return reply({ error: "분석 접근 코드를 확인해 주세요." }, 401);
-  }
   if (!request.headers.get("content-type")?.includes("application/json")) return reply({ error: "JSON 입력이 필요해요." }, 415);
   if (Number(request.headers.get("content-length") || 0) > 170_000) return reply({ error: "입력이 너무 길어요." }, 413);
 

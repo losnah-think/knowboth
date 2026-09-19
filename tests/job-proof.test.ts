@@ -44,11 +44,9 @@ test("job proof binds every server-researched job field", () => {
 test("job API returns a verifiable proof with the researched job", async () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.OPENAI_API_KEY;
-  const originalToken = process.env.ANALYZE_ACCESS_TOKEN;
   const originalVercel = process.env.VERCEL;
   process.env.OPENAI_API_KEY = secret;
-  delete process.env.ANALYZE_ACCESS_TOKEN;
-  delete process.env.VERCEL;
+  process.env.VERCEL = "1";
   globalThis.fetch = async input => isWantedRequest(input)
     ? new Response(wantedPageHtml, { status: 200, headers: { "Content-Type": "text/html" } })
     : new Response(JSON.stringify({
@@ -80,7 +78,6 @@ test("job API returns a verifiable proof with the researched job", async () => {
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv("OPENAI_API_KEY", originalKey);
-    restoreEnv("ANALYZE_ACCESS_TOKEN", originalToken);
     restoreEnv("VERCEL", originalVercel);
   }
 });
@@ -88,11 +85,9 @@ test("job API returns a verifiable proof with the researched job", async () => {
 test("job API retries one invalid model response before failing the request", async () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.OPENAI_API_KEY;
-  const originalToken = process.env.ANALYZE_ACCESS_TOKEN;
   const originalVercel = process.env.VERCEL;
   process.env.OPENAI_API_KEY = secret;
-  delete process.env.ANALYZE_ACCESS_TOKEN;
-  delete process.env.VERCEL;
+  process.env.VERCEL = "1";
   let openAICalls = 0;
   let wantedCalls = 0;
   globalThis.fetch = async input => {
@@ -131,7 +126,6 @@ test("job API retries one invalid model response before failing the request", as
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv("OPENAI_API_KEY", originalKey);
-    restoreEnv("ANALYZE_ACCESS_TOKEN", originalToken);
     restoreEnv("VERCEL", originalVercel);
   }
 });
@@ -139,11 +133,9 @@ test("job API retries one invalid model response before failing the request", as
 test("analyze API rejects missing, tampered, and browser-edited jobs before AI calls", async () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.OPENAI_API_KEY;
-  const originalToken = process.env.ANALYZE_ACCESS_TOKEN;
   const originalVercel = process.env.VERCEL;
   process.env.OPENAI_API_KEY = secret;
-  delete process.env.ANALYZE_ACCESS_TOKEN;
-  delete process.env.VERCEL;
+  process.env.VERCEL = "1";
   let fetchCalls = 0;
   globalThis.fetch = async () => {
     fetchCalls += 1;
@@ -171,7 +163,6 @@ test("analyze API rejects missing, tampered, and browser-edited jobs before AI c
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv("OPENAI_API_KEY", originalKey);
-    restoreEnv("ANALYZE_ACCESS_TOKEN", originalToken);
     restoreEnv("VERCEL", originalVercel);
   }
 });

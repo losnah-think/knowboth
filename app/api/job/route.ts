@@ -1,4 +1,3 @@
-import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { JobResearchError, normalizeWantedJobUrl, researchWantedJob } from "@/lib/knowboth/job-research";
 import { createJobProof } from "@/lib/knowboth/job-proof";
@@ -10,11 +9,6 @@ export const dynamic = "force-dynamic";
 const inputSchema = z.object({ url: z.string().trim().min(1).max(500) }).strict();
 const headers = { "Cache-Control": "no-store", "Content-Type": "application/json; charset=utf-8" };
 const reply = (value: unknown, status = 200) => Response.json(value, { status, headers });
-
-function sameSecret(left: string, right: string) {
-  const digest = (value: string) => createHash("sha256").update(value).digest();
-  return timingSafeEqual(digest(left), digest(right));
-}
 
 async function researchWithOneRetry(url: string, signal: AbortSignal) {
   try {
@@ -30,11 +24,6 @@ async function researchWithOneRetry(url: string, signal: AbortSignal) {
 export async function POST(request: Request) {
   const origin = request.headers.get("origin");
   if (origin && origin !== new URL(request.url).origin) return reply({ error: "이 사이트의 공고 입력 화면에서 요청해 주세요." }, 403);
-  const accessToken = process.env.ANALYZE_ACCESS_TOKEN?.trim();
-  if (process.env.VERCEL === "1" && !accessToken) return reply({ error: "배포 환경에 ANALYZE_ACCESS_TOKEN을 설정해 주세요." }, 503);
-  if (accessToken && !sameSecret(request.headers.get("x-knowboth-access") || "", accessToken)) {
-    return reply({ error: "분석 접근 코드를 확인해 주세요." }, 401);
-  }
   if (!request.headers.get("content-type")?.includes("application/json")) return reply({ error: "JSON 입력이 필요해요." }, 415);
   if (Number(request.headers.get("content-length") || 0) > 2_000) return reply({ error: "입력이 너무 길어요." }, 413);
 

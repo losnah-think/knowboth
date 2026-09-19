@@ -38,11 +38,9 @@ cp .env.example .env.local
 ```dotenv
 OPENAI_API_KEY=your_api_key
 OPENAI_MODEL=gpt-5.6-luna
-# 배포 환경은 필수, 로컬은 선택
-ANALYZE_ACCESS_TOKEN=your_shared_access_code
 ```
 
-`OPENAI_API_KEY`는 필수입니다. `OPENAI_MODEL`은 선택 사항이며, 생략하면 현재 코드의 기본값 `gpt-5.6-luna`를 사용합니다. 사용자가 선택한 모델도 `gpt-5.6-luna`이며 계정에서 실제 호출 가능한지 먼저 확인하세요. Vercel에서는 `ANALYZE_ACCESS_TOKEN`도 필수이며, 분석을 허용할 사람에게 전달할 충분히 긴 임의 문자열을 사용합니다. 세 값 모두 `NEXT_PUBLIC_` 접두사를 붙이지 않습니다.
+`OPENAI_API_KEY`는 필수입니다. `OPENAI_MODEL`은 선택 사항이며, 생략하면 현재 코드의 기본값 `gpt-5.6-luna`를 사용합니다. 사용자가 선택한 모델도 `gpt-5.6-luna`이며 계정에서 실제 호출 가능한지 먼저 확인하세요. 두 값 모두 `NEXT_PUBLIC_` 접두사를 붙이지 않습니다.
 
 ```sh
 npm run dev
@@ -66,9 +64,9 @@ npm run build
 1. 저장소를 GitHub, GitLab 또는 Bitbucket에 푸시합니다.
 2. Vercel Dashboard에서 **Add New → Project**를 선택하고 저장소를 Import합니다.
 3. Framework Preset은 **Next.js**, Root Directory는 저장소 루트로 둡니다. Build Command, Install Command, Output Directory는 재정의하지 않습니다.
-4. **Environment Variables**에 `OPENAI_API_KEY`와 `ANALYZE_ACCESS_TOKEN`을 추가하고 Production과 Preview에 적용합니다. 필요하면 `OPENAI_MODEL`도 같은 환경에 추가합니다.
+4. **Environment Variables**에 `OPENAI_API_KEY`를 추가하고 Production과 Preview에 적용합니다. 필요하면 `OPENAI_MODEL`도 같은 환경에 추가합니다.
 5. **Deploy**를 선택합니다. 환경변수를 나중에 바꾸면 기존 배포에는 반영되지 않으므로 새로 배포합니다.
-6. 배포 후 `/api/analyze`의 GET 응답에서 `available: true`, `accessRequired: true`인지 확인하고 실제 공고 한 건을 원문과 대조합니다. `/fonts/NanumGothic-Regular.ttf`와 `/fonts/NanumGothic-Bold.ttf`가 200으로 제공되는지도 확인합니다. 응답에 키나 접근 코드 값 자체가 노출되지는 않습니다.
+6. 배포 후 `/api/analyze`의 GET 응답에서 `available: true`인지 확인하고 실제 공고 한 건을 원문과 대조합니다. `/fonts/NanumGothic-Regular.ttf`와 `/fonts/NanumGothic-Bold.ttf`가 200으로 제공되는지도 확인합니다. 응답에 키 값 자체가 노출되지는 않습니다.
 
 상세 절차와 배포 후 점검은 [Vercel 배포·운영 인수인계](docs/SOL_HANDOFF.md)에 있습니다. 공식 참고 문서는 [Next.js on Vercel](https://vercel.com/docs/frameworks/full-stack/nextjs), [Git 저장소 배포](https://vercel.com/docs/git), [환경변수](https://vercel.com/docs/environment-variables)입니다.
 
@@ -81,7 +79,7 @@ npm run build
 - PDF는 다운로드할 때만 저장소의 `public/fonts`에 포함되어 `/fonts/...`로 제공되는 Nanum Gothic Regular/Bold를 가져와 문서에 내장합니다. 글꼴은 SIL Open Font License 1.1로 배포되며 라이선스와 출처는 [`public/fonts/README.md`](public/fonts/README.md)에 있습니다.
 - 공고 조사는 50초, 기업·보고서 분석은 110초 안에서 중단됩니다. Vercel 함수의 `maxDuration`은 각각 60초와 120초이며 실제 허용 시간은 요금제 설정을 따릅니다.
 - 새 URL을 분석하면 공고 조사, 기업 조사, 보고서 생성의 AI 호출이 순서대로 실행됩니다. 일반 경로는 Responses API 호출 3회이며, 공고 결과가 불완전하면 한 번만 자동 재시도합니다. 지연과 비용은 모델·검색 결과·계정 한도에 따라 달라집니다.
-- 배포 환경은 공유 접근 코드로 공고 조사와 최종 분석 API를 막지만 사용자 계정, 서버 캐시, 사용자·IP별 요청 제한은 없습니다. 공개 URL을 널리 배포하기 전 Vercel 방화벽·사용량 알림·예산 제한을 설정하세요.
+- 공고 조사와 최종 분석 API는 별도 접근 코드 없이 공개됩니다. 사용자 계정, 서버 캐시, 사용자·IP별 요청 제한은 없으므로 Vercel 방화벽·사용량 알림과 OpenAI 예산 제한을 설정하세요.
 - OpenDART API를 직접 호출하지 않습니다. 웹 검색에서 확인한 공식 공시·IR 자료만 사용하므로 비상장사나 동명 법인은 매출이 미확인으로 남을 수 있습니다.
 - 서버가 원티드 페이지의 표시 텍스트를 확보하면 AI가 추출한 회사·포지션·업무·자격요건을 원문과 정확히 대조합니다. 직접 원문을 읽지 못하면 검색 제공자가 요청한 정확한 공고 URL을 출처로 반환해야 합니다. 이 검사도 모든 기업 주장과 수치의 의미까지 보장하지 않으므로 지원 전 중요한 정보는 원문 링크에서 확인하세요.
 

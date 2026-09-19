@@ -28,11 +28,9 @@ npm run build
 ```dotenv
 OPENAI_API_KEY=your_api_key
 OPENAI_MODEL=gpt-5.6-luna
-# Vercel에서는 필수, 로컬에서는 선택
-ANALYZE_ACCESS_TOKEN=your_shared_access_code
 ```
 
-`OPENAI_API_KEY`는 필수다. `OPENAI_MODEL`은 선택 사항이며 생략 시 코드 기본값은 `gpt-5.6-luna`다. 사용자가 선택한 모델도 `gpt-5.6-luna`이며, 해당 계정에서 웹 검색과 JSON Schema 출력을 함께 호출할 수 있는지 확인한다. Vercel에서는 `ANALYZE_ACCESS_TOKEN`도 필수다. 분석을 허용할 사람에게 전달할 충분히 긴 임의 문자열을 사용한다. 비밀값은 Git에 커밋하지 않고 `NEXT_PUBLIC_` 접두사를 붙이지 않는다.
+`OPENAI_API_KEY`는 필수다. `OPENAI_MODEL`은 선택 사항이며 생략 시 코드 기본값은 `gpt-5.6-luna`다. 사용자가 선택한 모델도 `gpt-5.6-luna`이며, 해당 계정에서 웹 검색과 JSON Schema 출력을 함께 호출할 수 있는지 확인한다. 비밀값은 Git에 커밋하지 않고 `NEXT_PUBLIC_` 접두사를 붙이지 않는다.
 
 ## Dashboard에서 처음 배포하기
 
@@ -46,7 +44,7 @@ ANALYZE_ACCESS_TOKEN=your_shared_access_code
    - Install Command: 재정의하지 않음
    - Build Command: 재정의하지 않음
    - Output Directory: 재정의하지 않음
-5. 같은 화면의 **Environment Variables**에 `OPENAI_API_KEY`와 `ANALYZE_ACCESS_TOKEN`을 추가한다. Preview와 Production을 모두 선택한다.
+5. 같은 화면의 **Environment Variables**에 `OPENAI_API_KEY`를 추가한다. Preview와 Production을 모두 선택한다.
 6. 사용할 모델을 고정하려면 `OPENAI_MODEL`도 같은 환경에 추가한다. 생략하면 코드 기본값을 사용한다.
 7. **Deploy**를 선택하고 빌드가 끝날 때까지 기다린다.
 8. 배포 상세의 Build Logs에서 `next build`가 성공했는지 확인한다.
@@ -81,7 +79,7 @@ npx vercel@latest --prod
 curl -sS https://YOUR_DOMAIN/api/analyze
 ```
 
-정상 설정이면 `available`과 `accessRequired`가 `true`다. `modelConfigured`는 `OPENAI_MODEL`을 명시했는지만 나타내며, `false`여도 코드 기본 모델을 사용한다. 이 응답은 키, 모델, 접근 코드 값을 공개하지 않는다.
+정상 설정이면 `available`이 `true`다. `modelConfigured`는 `OPENAI_MODEL`을 명시했는지만 나타내며, `false`여도 코드 기본 모델을 사용한다. 이 응답은 키와 모델 값을 공개하지 않는다.
 
 PDF용 정적 글꼴도 배포 출처에서 확인한다.
 
@@ -95,7 +93,7 @@ curl -sSI https://YOUR_DOMAIN/fonts/NanumGothic-Bold.ttf
 브라우저에서 다음 순서로 점검한다.
 
 1. 첫 화면과 “가상 예시 보기”가 정상 표시되는지 확인한다.
-2. 공유 분석 접근 코드와 `https://www.wanted.co.kr/wd/숫자` 형식의 공개 공고 URL만 입력해 공고 확인을 실행한다. 로딩 화면에 공고 확인부터 보고서 준비까지 순서가 보이는지 확인한다.
+2. `https://www.wanted.co.kr/wd/숫자` 형식의 공개 공고 URL을 입력해 공고 확인을 실행한다. 로딩 화면에 공고 확인부터 보고서 준비까지 순서가 보이는지 확인한다.
 3. 로딩 중 `홈`을 눌러 요청이 취소되고 URL은 유지된 첫 화면으로 돌아오는지 확인한다.
 4. 조사된 공고 카드의 회사명, 포지션명, 주요 업무, 자격요건, 우대사항을 실제 원티드 공고와 대조한다. 회사명이나 공고 본문을 추가로 입력하는 칸이 없어야 한다.
 5. 경험을 넣지 않고 기업·역할 분석을 실행한 뒤 실제 출처 링크가 열리고 회사·법인·회계기간·통화·연결/별도 범위가 원문과 맞는지 확인한다.
@@ -124,7 +122,7 @@ curl -sSI https://YOUR_DOMAIN/fonts/NanumGothic-Bold.ttf
 | 최종 분석 입력 | UTF-8 160KB 이하, HTTP 요청 170KB에서 추가 차단 |
 | 이력서 파일 | 8MB 이하, PDF 40쪽 이하 |
 | 저장소 | 서버 DB 없음. 실제 완료 보고서만 브라우저 `localStorage`에 최대 10개·직렬화 약 200만 자 범위로 보관 |
-| 배포 접근 제어 | `/api/job`, `/api/analyze` 모두 `ANALYZE_ACCESS_TOKEN` 공유 코드 |
+| 배포 접근 제어 | 별도 접근 코드 없음. 동일 출처 검사와 `jobProof` 변조 검증 유지 |
 
 공고 조사는 OpenAI Responses API 한 번 안에서 최대 3회의 웹 검색 도구 호출을 허용하고, 결과가 불완전하거나 검색이 일시적으로 실패한 경우 요청 전체를 한 번만 재시도한다. 법인 후보를 선택해 다시 분석하면 기업 조사와 보고서 생성 호출이 추가된다. Vercel 요금제의 함수 실행 한도가 각 라우트의 선언값보다 짧으면 플랫폼이 먼저 요청을 종료한다. 배포할 Team의 Functions 설정과 사용량을 확인한다. 라우트별 `maxDuration` 방식은 [Vercel Functions duration 문서](https://vercel.com/docs/functions/configuring-functions/duration)를 참고한다.
 
@@ -132,9 +130,9 @@ curl -sSI https://YOUR_DOMAIN/fonts/NanumGothic-Bold.ttf
 
 공고 확인 시 원티드 URL은 `/api/job`, 원티드, OpenAI 웹 검색에 전달된다. PDF.js와 Mammoth는 브라우저에서 원본 파일을 읽으며 원본 파일 자체는 업로드하지 않는다. 최종 분석 시에는 조사된 공고와 사용자가 확인한 경험 텍스트가 `/api/analyze`와 OpenAI로 전달된다. OpenAI 요청에는 `store: false`를 사용하며 앱은 입력과 보고서를 서버 DB에 저장하지 않는다. 모델 제공자의 별도 처리·보존 정책은 따로 적용된다.
 
-완료한 실제 보고서는 최근 분석을 위해 브라우저 `localStorage`에 저장한다. `reportSchema` 검증을 통과한 기록만 유지하며 최신순 최대 10개, 직렬화 문자열 약 200만 자로 제한한다. 다른 기기·브라우저와 동기화되지 않는다. 이력서 원본, 공유 접근 코드, `jobProof`는 저장하지 않지만 보고서에는 분석에 사용된 경험 인용이 포함될 수 있다. 사용자는 각 기록의 삭제 버튼으로 지울 수 있고, 브라우저 사이트 데이터를 지우면 전체 기록이 사라진다.
+완료한 실제 보고서는 최근 분석을 위해 브라우저 `localStorage`에 저장한다. `reportSchema` 검증을 통과한 기록만 유지하며 최신순 최대 10개, 직렬화 문자열 약 200만 자로 제한한다. 다른 기기·브라우저와 동기화되지 않는다. 이력서 원본과 `jobProof`는 저장하지 않지만 보고서에는 분석에 사용된 경험 인용이 포함될 수 있다. 사용자는 각 기록의 삭제 버튼으로 지울 수 있고, 브라우저 사이트 데이터를 지우면 전체 기록이 사라진다.
 
-배포 환경에서는 `/api/job`과 `/api/analyze`가 공유 접근 코드를 `x-knowboth-access` 요청 헤더로 검사한다. `/api/job`이 반환한 `jobProof`는 브라우저가 `x-knowboth-job-proof`로 다시 보내며, 서버는 이 서명으로 공고 결과의 변조와 수동 본문 우회를 막는다. 두 값은 브라우저 상태에만 두고 영구 저장하지 않는다. 다만 사용자별 인증, CAPTCHA, 서버 요청 제한, 계정별 비용 할당량은 없다. 접근 코드를 가진 사람은 누구나 유료 AI 호출을 실행할 수 있으므로 공개 링크를 배포하기 전 최소한 아래 운영 설정을 적용한다.
+배포 환경의 `/api/job`과 `/api/analyze`는 별도 접근 코드 없이 공개된다. `/api/job`이 반환한 `jobProof`는 브라우저가 `x-knowboth-job-proof`로 다시 보내며, 서버는 이 서명으로 공고 결과의 변조와 수동 본문 우회를 막는다. `jobProof`는 브라우저 상태에만 두고 영구 저장하지 않는다. 사용자별 인증, CAPTCHA, 서버 요청 제한, 계정별 비용 할당량은 없으므로 공개 링크를 배포하기 전 최소한 아래 운영 설정을 적용한다.
 
 - OpenAI 프로젝트의 사용량·예산 한도와 알림
 - Vercel 사용량 알림과 방화벽 규칙
@@ -150,6 +148,6 @@ Origin 검사는 비용 통제가 아니며, 공개 API를 단독으로 보호�
 - 법인 후보 선택은 한 번의 추가 조사·분석 요청을 발생시킨다. 선택값은 식별 힌트이며 실제 출처 대조를 다시 거친다.
 - OpenDART API를 직접 호출하지 않으며 웹 검색 결과에 없는 재무 자료를 찾지 못할 수 있다.
 - 원티드 표시 텍스트를 확보한 경우 회사명·포지션·업무·자격요건을 정확히 대조하고, 그렇지 않으면 검색 제공자의 정확한 URL 인용을 요구한다. 보고서 참조와 짧은 인용도 구조적으로 검사하지만, 해당 페이지가 모든 요약·기업 주장·매출을 의미상 뒷받침하는지까지 자동으로 증명하지 못하므로 중요한 지원 조건, 법인, 매출은 실제 지원 전 링크를 열어 확인해야 한다.
-- 계정, 서버 저장, 공유 링크, 기기 간 동기화는 없다. 입력 중인 이력서와 접근 코드는 새로고침하면 사라지고 완료 보고서만 같은 브라우저의 최근 분석에 남는다.
+- 계정, 서버 저장, 공유 링크, 기기 간 동기화는 없다. 입력 중인 이력서는 새로고침하면 사라지고 완료 보고서만 같은 브라우저의 최근 분석에 남는다.
 
 다음 개발 우선순위는 사용자·IP별 요청 제한, 검사를 통과한 부분 결과의 스트리밍, 실제 사례 평가 자동화 순이다.

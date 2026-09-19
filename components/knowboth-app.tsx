@@ -166,8 +166,6 @@ const REVENUE_LABEL = { available: "확인됨", not_found: "자료에서 확인�
 export default function KnowBothApp() {
   const [view, setView] = useState<View>("search");
   const [url, setUrl] = useState("");
-  const [accessRequired, setAccessRequired] = useState(false);
-  const [accessCode, setAccessCode] = useState("");
   const [jobPreview, setJobPreview] = useState<{ company: string; position: string } | null>(null);
   const [experience, setExperience] = useState("");
   const [preferences, setPreferences] = useState("");
@@ -213,9 +211,7 @@ export default function KnowBothApp() {
       savedAnalysesRef.current = stored;
       setSavedAnalyses(stored);
     }, 0);
-    const config = new AbortController();
-    void fetch("/api/analyze", { signal: config.signal }).then(response => response.ok ? response.json() : null).then(value => { if (!config.signal.aborted && value) setAccessRequired(value.accessRequired === true); }).catch(() => {});
-    return () => { window.clearTimeout(historyTimer); config.abort(); controller.current?.abort(); };
+    return () => { window.clearTimeout(historyTimer); controller.current?.abort(); };
   }, []);
 
   function clearConfirmedJob() { confirmedJob.current = null; confirmedJobProof.current = ""; confirmedUrl.current = ""; setJobPreview(null); setCandidates([]); }
@@ -284,9 +280,8 @@ export default function KnowBothApp() {
   }
 
   async function normalizeJob(signal?: AbortSignal) {
-    const response = await fetch("/api/job", { method: "POST", headers: { "Content-Type": "application/json", ...(accessCode.trim() ? { "X-KnowBoth-Access": accessCode.trim() } : {}) }, body: JSON.stringify({ url: url.trim() }), signal });
+    const response = await fetch("/api/job", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: url.trim() }), signal });
     const result = objectRecord(await response.json().catch(() => null));
-    if (response.status === 401) setAccessRequired(true);
     if (!response.ok) throw new Error(apiMessage(result, "공고를 확인하지 못했어요. 주소를 확인하고 다시 시도해 주세요."));
     if (result.status !== "ready" || !result.job || typeof result.jobProof !== "string") throw new Error(apiMessage(result, "공고 내용을 충분히 확인하지 못했어요. 잠시 후 다시 시도해 주세요."));
     const job = result.job as JobInput;
@@ -298,7 +293,6 @@ export default function KnowBothApp() {
   async function importJob(event: FormEvent) {
     event.preventDefault(); setError(""); setNotice("");
     if (!url.trim()) { setError("원티드 공고 주소를 입력해 주세요."); urlRef.current?.focus(); return; }
-    if (accessRequired && !accessCode.trim()) { setError("분석 접근 코드를 입력해 주세요."); document.getElementById("analysis-access")?.focus(); return; }
     homeRequested.current = false; setView("job"); setCandidates([]);
     const current = new AbortController(); controller.current = current;
     try { await normalizeJob(current.signal); setNeedsJobRefresh(false); setView("profile"); }
@@ -313,18 +307,16 @@ export default function KnowBothApp() {
     event?.preventDefault(); setError(""); setNotice("");
     const withProfile = choice ? profileIncluded : includeProfile;
     if (withProfile && experience.length > MAX_TEXT) { setError("내 경험은 20,000자까지 분석할 수 있어요. 필요한 경험만 남겨 주세요."); document.getElementById("experience")?.focus(); return; }
-    if (accessRequired && !accessCode.trim()) { setError("분석 접근 코드를 입력해 주세요."); setView("profile"); document.getElementById("analysis-access")?.focus(); return; }
     const job = confirmedJob.current;
     if (!job || !confirmedJobProof.current || confirmedUrl.current !== url.trim()) { clearConfirmedJob(); setNeedsJobRefresh(true); setError("분석 전에 공고를 다시 확인해 주세요. 입력한 주소는 그대로 남아 있어요."); setView("search"); return; }
     homeRequested.current = false; setProfileIncluded(withProfile);
     setView("analysis"); setCandidates([]);
     const current = new AbortController(); controller.current = current;
     try {
-      const response = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json", "X-KnowBoth-Job-Proof": confirmedJobProof.current, ...(accessCode.trim() ? { "X-KnowBoth-Access": accessCode.trim() } : {}) }, signal: current.signal, body: JSON.stringify({ job, profile: withProfile && experience.trim() ? { experienceText: experience.trim(), desiredWork: preferences.trim() || null, constraints: null, additionalAnswers: [] } : null, companyHint: choice && choice !== "skip_financials" ? { legalName: choice.legalName || choice.displayName || choice.name, website: choice.website || null } : null, companyResolution: choice === "skip_financials" ? "skip_financials" : choice ? "selected" : "auto" }) });
+      const response = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json", "X-KnowBoth-Job-Proof": confirmedJobProof.current }, signal: current.signal, body: JSON.stringify({ job, profile: withProfile && experience.trim() ? { experienceText: experience.trim(), desiredWork: preferences.trim() || null, constraints: null, additionalAnswers: [] } : null, companyHint: choice && choice !== "skip_financials" ? { legalName: choice.legalName || choice.displayName || choice.name, website: choice.website || null } : null, companyResolution: choice === "skip_financials" ? "skip_financials" : choice ? "selected" : "auto" }) });
       const result = objectRecord(await response.json().catch(() => null));
       if (!response.ok) {
         if (result.code === "JOB_PROOF_INVALID") { clearConfirmedJob(); setNeedsJobRefresh(true); setError("공고 확인 정보가 만료됐어요. 아래 버튼으로 다시 확인하면 이어서 분석할 수 있어요."); setView("search"); return; }
-        if (response.status === 401) setAccessRequired(true);
         throw new Error(apiMessage(result, "분석을 완료하지 못했어요. 입력은 유지되어 있으니 다시 시도해 주세요."));
       }
       if (result.type === "needs_company" || result.status === "needs_company") {
@@ -357,7 +349,6 @@ export default function KnowBothApp() {
   function tabKeys(event: KeyboardEvent<HTMLButtonElement>, index: number) { let next = index; if (event.key === "ArrowRight") next = (index + 1) % TABS.length; else if (event.key === "ArrowLeft") next = (index + TABS.length - 1) % TABS.length; else if (event.key === "Home") next = 0; else if (event.key === "End") next = TABS.length - 1; else return; event.preventDefault(); setActiveTab(TABS[next].id); document.getElementById(`tab-${TABS[next].id}`)?.focus(); }
 
   const feedback = <>{notice && <div className="kb-notice" role="status"><Info size={16} /><p>{notice}</p></div>}{error && <div className="kb-error" role="alert"><Info size={17} /><p>{error}</p></div>}</>;
-  const accessField = accessRequired && <div className="kb-access-code"><label htmlFor="analysis-access"><LockKeyhole size={13} />분석 접근 코드</label><input id="analysis-access" type="password" value={accessCode} onChange={event => setAccessCode(event.target.value)} autoComplete="off" placeholder="전달받은 코드" /><span>이 화면에서만 유지돼요.</span></div>;
   return <div className={`kb-app ${view === "search" ? "kb-search-page" : ""}`}>
     <a className="kb-skip" href="#analysis-content">본문으로 바로가기</a>
     {view !== "search" && <header className="kb-header"><button type="button" className="kb-brand" aria-label="홈으로 이동" onClick={goHome}><span className="kb-logo" aria-hidden="true"><span /><span /></span>KnowBoth</button><button type="button" className="kb-home-button" onClick={goHome}><House size={15} />홈</button></header>}
@@ -370,7 +361,7 @@ export default function KnowBothApp() {
           <label className="kb-sr-only" htmlFor="job-url">원티드 공고 URL</label>
           <div className="kb-search-bar"><Link2 size={20} aria-hidden="true" /><input ref={urlRef} id="job-url" type="url" required value={url} onChange={event => { setUrl(event.target.value); clearConfirmedJob(); setNeedsJobRefresh(false); setError(""); setNotice(""); }} placeholder="원티드 공고 URL을 붙여넣으세요" autoComplete="off" aria-describedby="job-url-hint" /><button type="submit">{needsJobRefresh ? "공고 다시 확인" : "분석하기"}<ArrowRight size={17} aria-hidden="true" /></button></div>
           <p id="job-url-hint" className="kb-search-hint">매출과 주요 사업부터, 채용 이유와 필요한 역량까지.</p>
-          {accessField}{feedback}
+          {feedback}
         </form>
         <div className="kb-home-links"><button type="button" className="kb-text-button" onClick={showSample}>예시 보고서 보기 <ArrowUpRight size={14} /></button>{report && <button type="button" className="kb-text-button" onClick={() => setView("report")}>이전 보고서 보기</button>}</div>
         {savedAnalyses.length > 0 && <section className="kb-history" aria-labelledby="history-title">
@@ -392,7 +383,7 @@ export default function KnowBothApp() {
           {fileError && <p className="kb-inline-error" role="alert">{fileError}</p>}
           <button type="button" className="kb-text-button kb-manual-toggle" aria-expanded={profileOpen} aria-controls="profile-input" onClick={() => setProfileOpen(!profileOpen)}>{profileOpen ? "경험 입력 접기" : "파일 없이 경험 직접 입력하기"}<ChevronDown size={15} className={profileOpen ? "kb-rotated" : ""} /></button>
           {profileOpen && <div id="profile-input" className="kb-profile-fields"><label htmlFor="experience">{fileName ? "추출한 경험 · 수정할 수 있어요" : "내 경험"}</label><textarea id="experience" value={experience} onChange={event => setExperience(event.target.value)} placeholder="내가 맡은 역할, 해결한 문제, 결과를 적어주세요. 학교·개인 프로젝트도 좋아요." rows={6} disabled={reading} aria-describedby="experience-hint experience-count" aria-invalid={experience.length > MAX_TEXT} /><p id="experience-count" className={`kb-count ${experience.length > MAX_TEXT ? "kb-danger" : ""}`}>{experience.length.toLocaleString()} / 20,000자</p><p id="experience-hint" className="kb-field-hint">연락처 등 분석에 필요 없는 정보는 지워주세요.</p><label htmlFor="preferences">내가 중요하게 생각하는 것 <span className="kb-optional">선택</span></label><input id="preferences" value={preferences} onChange={event => setPreferences(event.target.value)} placeholder="예: 고객과 가까이 일하기, 원격 근무" maxLength={1000} /></div>}
-          {accessField}{feedback}
+          {feedback}
           <div className="kb-profile-actions"><button type="submit" className="kb-primary" disabled={reading || !experience.trim()}><Sparkles size={16} />기업과 나 분석하기<ArrowRight size={17} /></button><button type="button" className="kb-without-resume" disabled={reading} onClick={() => void analyze(undefined, undefined, false)}>이력서 없이 계속 <ArrowRight size={15} /></button></div>
           <p className="kb-privacy"><LockKeyhole size={12} /><span>파일은 브라우저에서 읽어요. 분석 시 선택한 경험 텍스트가 서버와 AI 제공자에 전달돼요.</span></p>
         </form>

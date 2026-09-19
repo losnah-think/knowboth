@@ -104,11 +104,6 @@ button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-v
 .kb-privacy { display: flex; align-items: flex-start; gap: 6px; font-size: 10px; color: #86868b; line-height: 1.8; margin-top: 17px; }
 .kb-privacy > svg { flex-shrink: 0; margin-top: 3px; }
 .kb-previous-report { display: flex; font-size: 11px; margin: 16px auto 0; color: #6e6e73; }
-.kb-access-code { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 22px auto 0; max-width: 400px; text-align: left; }
-.kb-access-code label { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #6e6e73; margin: 0; font-weight: 450; }
-.kb-access-code input, .kb-input-card .kb-access-code input { min-width: 100px; width: auto; flex: 1; padding: 9px 11px; border: 1px solid #dedee3; border-radius: 8px; outline: 0; font-size: 12px; }
-.kb-access-code input:focus { border-color: #0071e3; box-shadow: 0 0 0 3px #0071e315; }
-.kb-access-code > span { width: 100%; font-size: 9px; color: #86868b; text-align: right; }
 .kb-notice, .kb-error { display: flex; gap: 8px; font-size: 12px; padding: 13px 15px; border-radius: 10px; margin-top: 20px; align-items: flex-start; text-align: left; line-height: 1.8; }
 .kb-notice { color: #40556b; background: #f0f5fb; }
 .kb-error { color: #983323; background: #fff3f0; border: 1px solid #f5ddd5; }
@@ -294,9 +289,8 @@ blockquote > span { display: block; font-size: 10px; color: #657990; margin-bott
   .kb-profile-card h1 { font-size: 26px; }
   .kb-position-title { font-size: 14px; }
   .kb-profile-card h2 { font-size: 20px; }
-  .kb-input-card input:not([type="file"]), .kb-input-card textarea, .kb-access-code input { font-size: 16px; }
-  .kb-input-card input::placeholder, .kb-input-card textarea::placeholder, .kb-access-code input::placeholder { font-size: 12px; }
-  .kb-input-card .kb-access-code input { font-size: 16px; }
+  .kb-input-card input:not([type="file"]), .kb-input-card textarea { font-size: 16px; }
+  .kb-input-card input::placeholder, .kb-input-card textarea::placeholder { font-size: 12px; }
   .kb-profile-intro { font-size: 12px; }
   .kb-analysis-loading { padding: 37px 24px 28px; border-radius: 21px; }
   .kb-analysis-loading h1 { font-size: 24px; }
