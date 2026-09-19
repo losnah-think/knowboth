@@ -43,6 +43,8 @@ next-env.d.ts
 /.agents/
 /.codex/
 /outputs/
+/output/
+/tmp/
 /work/
 !/.env.example
 *.tsbuildinfo

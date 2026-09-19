@@ -1,2 +1,5 @@
-import {redirect} from 'next/navigation';
-export default function Home(){redirect('/jobs');}
+import KnowBothApp from "@/components/knowboth-app";
+
+export default function Home() {
+  return <KnowBothApp />;
+}

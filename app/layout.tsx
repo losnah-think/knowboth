@@ -1,24 +1,12 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import RoleBridgeWorkflow from "@/components/rolebridge-workflow";
 
 export const metadata: Metadata = {
-  title: "RoleBridge · 공고에서 찾는 나의 가능성",
-  description: "공고가 요구하는 역량과 내 경험을 연결하고, 보완할 역량과 새로운 도메인의 가능성을 발견하세요.",
-  icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
-  },
+  title: "KnowBoth · 기업을 알고, 나를 알고",
+  description: "원티드 공고와 내 경험으로 기업의 사업, 채용 배경, 필요한 역량과 지원 준비를 함께 분석하세요.",
+  icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
-  return (
-    <html lang="ko">
-      <body className="antialiased"><RoleBridgeWorkflow>{children}</RoleBridgeWorkflow></body>
-    </html>
-  );
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  return <html lang="ko"><body>{children}</body></html>;
 }
