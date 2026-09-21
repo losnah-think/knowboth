@@ -54,7 +54,7 @@ export function containsQuote(source: string, quote: unknown, minLength = 3): qu
 export function hasExperienceQuote(source: string, quote: unknown): quote is string {
   if (!containsQuote(source, quote)) return false;
   const needle = evidenceText(quote);
-  const sentences = source.replace(/([.!?。])\s+/g, '$1\n').split(/\n+/).map(evidenceText);
+  const sentences = evidenceText(source).replace(/([.!?。])\s+/g, '$1\n').split(/\n+/).map(evidenceText);
   const matches = sentences.filter(sentence => sentence.includes(needle));
   if (!matches.length) return false;
   const negative = /(?:경험|경력|역량).{0,15}(?:없|부족|아니)|(?:해본|해 본|구축한|담당한).{0,10}없|(?:하지|해보지|해 보지)\s*않|\b(?:no experience|never|have not|haven't|do not|don't)\b/i;
@@ -160,7 +160,7 @@ export function verifyPostingPage(input: {
   const html = input.html;
   const main = html.match(/<main\b[^>]*>([\s\S]*?)<\/main\s*>/i)?.[1] || html;
   const pageText = visibleText(main);
-  if (/(?:마감된\s*(?:채용\s*)?공고|종료된\s*(?:채용\s*)?공고|채용이\s*(?:마감|종료)|공고가\s*마감|채용\s*마감|마감되었습니다|채용이 종료되었습니다|존재하지 않는 공고|공고를 찾을 수 없)/i.test(pageText)) return null;
+  if (/(?:마감된\s*(?:채용\s*)?공고|종료된\s*(?:채용\s*)?공고|채용이\s*(?:마감|종료)|공고가\s*마감|채용\s*마감(?!일|기한)|마감되었습니다|채용이 종료되었습니다|존재하지 않는 공고|공고를 찾을 수 없)/i.test(pageText)) return null;
   const objects = structuredPostings(html);
   const identified = objects.filter(item => postingIdentity(item, url));
   // A lone unkeyed JobPosting is usable on an exact /wd/:id page, but not one with a different explicit identifier.
