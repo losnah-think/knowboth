@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { jobInputSchema, type JobInput } from "./schema";
+import { normalizeWantedJobUrl } from "./wanted-url";
+export { normalizeWantedJobUrl } from "./wanted-url";
 
 const extractedPostingSchema = z.object({
   postingId: z.string().regex(/^[1-9]\d*$/),
@@ -54,28 +56,6 @@ const MAX_WANTED_HTML_BYTES = 1_000_000;
 export class JobResearchError extends Error {
   constructor(public readonly code: "configuration" | "rate_limit" | "upstream" | "not_found" | "invalid_response" | "refusal") {
     super(code);
-  }
-}
-
-export function normalizeWantedJobUrl(value: string) {
-  try {
-    const url = new URL(value);
-    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return null;
-
-    const wantedMatch = url.pathname.match(/^\/wd\/([1-9]\d*)\/?$/);
-    if ((url.hostname === "www.wanted.co.kr" || url.hostname === "wanted.co.kr") && wantedMatch) {
-      return `https://www.wanted.co.kr/wd/${wantedMatch[1]}`;
-    }
-
-    // Wanted's share sheet uses wntd.co short links. Keep the short URL so
-    // web research can follow the redirect to the canonical posting.
-    if (url.hostname === "wntd.co" && /^\/[A-Za-z0-9_-]+\/?$/.test(url.pathname)) {
-      url.hash = "";
-      return url.toString();
-    }
-    return null;
-  } catch {
-    return null;
   }
 }
 

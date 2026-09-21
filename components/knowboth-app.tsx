@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, Building2, Check, ChevronDown, Download, ExternalLink, History as HistoryIcon, House, Info, Link2, LoaderCircle, LockKeyhole, Plus, Search, Sparkles, Target, Trash2, Upload, UserRound } from "lucide-react";
 import { reportSchema, type JobInput, type Report } from "@/lib/knowboth/schema";
+import RecommendedJobs, { type RecommendationContext } from "@/components/recommended-jobs";
+import { mapConcurrent } from "@/lib/knowboth/recommendation-core";
+import { extractWantedJobUrl } from "@/lib/knowboth/wanted-url";
 
 const MAX_TEXT = 20_000;
 const HISTORY_STORAGE_KEY = "knowboth.analysis-history.v1";
@@ -30,8 +33,7 @@ type StoredAnalysis = {
 type ProgressState = "complete" | "current" | "upcoming";
 
 function extractHttpUrl(value: string) {
-  const match = value.match(/https?:\/\/[^\s<>"]+/i);
-  return match ? match[0].replace(/[),.;!?]+$/, "") : value.trim();
+  return extractWantedJobUrl(value) || value.trim();
 }
 function safeUrl(value: string | null | undefined) {
   if (!value) return null;
@@ -181,6 +183,7 @@ export default function KnowBothApp() {
   const [notice, setNotice] = useState("");
   const [needsJobRefresh, setNeedsJobRefresh] = useState(false);
   const [report, setReport] = useState<Report | null>(null);
+  const [recommendationContext, setRecommendationContext] = useState<RecommendationContext | null>(null);
   const [sample, setSample] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("company");
   const [candidates, setCandidates] = useState<CompanyCandidate[]>([]);
@@ -244,6 +247,7 @@ export default function KnowBothApp() {
     clearConfirmedJob();
     setUrl(item.originalUrl);
     setReport(parsed.data);
+    setRecommendationContext(null);
     setSample(false);
     setOpenedFromHistory(true);
     setActiveTab("company");
@@ -269,16 +273,16 @@ export default function KnowBothApp() {
         try {
           const document = await loading.promise;
           if (document.numPages > 40) throw new Error("40페이지 이하의 PDF를 선택해 주세요.");
-          const pages = await Promise.all(
-            Array.from({ length: document.numPages }, async (_, index) => {
+          const pages = await mapConcurrent(
+            Array.from({ length: document.numPages }, (_, index) => index), 4, async index => {
               const page = await document.getPage(index + 1);
               try {
                 const content = await page.getTextContent();
-                return content.items.map(item => "str" in item ? `${item.str}${"hasEOL" in item && item.hasEOL ? "\\n" : " "}` : "").join("");
+                return content.items.map(item => "str" in item ? `${item.str}${"hasEOL" in item && item.hasEOL ? "\n" : " "}` : "").join("");
               } finally {
                 page.cleanup();
               }
-            }),
+            },
           );
           text = pages.join("\n\n");
         } finally { await loading.destroy(); }
@@ -325,8 +329,10 @@ export default function KnowBothApp() {
     homeRequested.current = false; setProfileIncluded(withProfile);
     setView("analysis"); setCandidates([]);
     const current = new AbortController(); controller.current = current;
+    const submittedProfile = withProfile && experience.trim() ? { experienceText: experience.trim(), desiredWork: preferences.trim() || null, constraints: null, additionalAnswers: [] } : null;
+    const submittedProof = confirmedJobProof.current;
     try {
-      const response = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json", "X-KnowBoth-Job-Proof": confirmedJobProof.current }, signal: current.signal, body: JSON.stringify({ job, profile: withProfile && experience.trim() ? { experienceText: experience.trim(), desiredWork: preferences.trim() || null, constraints: null, additionalAnswers: [] } : null, companyHint: choice && choice !== "skip_financials" ? { legalName: choice.legalName || choice.displayName || choice.name, website: choice.website || null } : null, companyResolution: choice === "skip_financials" ? "skip_financials" : choice ? "selected" : "auto" }) });
+      const response = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json", "X-KnowBoth-Job-Proof": submittedProof }, signal: current.signal, body: JSON.stringify({ job, profile: submittedProfile, companyHint: choice && choice !== "skip_financials" ? { legalName: choice.legalName || choice.displayName || choice.name, website: choice.website || null } : null, companyResolution: choice === "skip_financials" ? "skip_financials" : choice ? "selected" : "auto" }) });
       const result = objectRecord(await response.json().catch(() => null));
       if (!response.ok) {
         if (result.code === "JOB_PROOF_INVALID") { clearConfirmedJob(); setNeedsJobRefresh(true); setError("공고 확인 정보가 만료됐어요. 아래 버튼으로 다시 확인하면 이어서 분석할 수 있어요."); setView("search"); return; }
@@ -341,6 +347,7 @@ export default function KnowBothApp() {
         const parsed = reportSchema.safeParse(result.report);
         if (!parsed.success) throw new Error("분석 결과 형식을 확인하지 못했어요. 입력은 유지되어 있으니 다시 시도해 주세요.");
         setReport(parsed.data); setSample(false); setOpenedFromHistory(false); setActiveTab("company"); setDownloadError("");
+        setRecommendationContext({ analysisId: parsed.data.analysisId, job, profile: submittedProfile, jobProof: submittedProof });
         rememberReport(parsed.data, parsed.data.job.sourceUrl || confirmedUrl.current || url.trim());
         setView("report");
       }
@@ -372,7 +379,7 @@ export default function KnowBothApp() {
         <p className="kb-search-copy">기업을 알고, 나를 알고.<br />지원의 방향을 찾다.</p>
         <form className="kb-search-form" onSubmit={event => void importJob(event)} aria-label="원티드 공고 분석">
           <label className="kb-sr-only" htmlFor="job-url">원티드 공고 URL</label>
-          <div className="kb-search-bar"><Link2 size={20} aria-hidden="true" /><input ref={urlRef} id="job-url" type="url" required value={url} onChange={event => { setUrl(event.target.value); clearConfirmedJob(); setNeedsJobRefresh(false); setError(""); setNotice(""); }} placeholder="원티드 공고 URL을 붙여넣으세요" autoComplete="off" aria-describedby="job-url-hint" /><button type="submit">{needsJobRefresh ? "공고 다시 확인" : "분석하기"}<ArrowRight size={17} aria-hidden="true" /></button></div>
+          <div className="kb-search-bar"><Link2 size={20} aria-hidden="true" /><input ref={urlRef} id="job-url" type="text" inputMode="url" required value={url} onChange={event => { setUrl(event.target.value); clearConfirmedJob(); setNeedsJobRefresh(false); setError(""); setNotice(""); }} placeholder="원티드 공고 URL 또는 공유 문구를 붙여넣으세요" autoComplete="off" aria-describedby="job-url-hint" /><button type="submit">{needsJobRefresh ? "공고 다시 확인" : "분석하기"}<ArrowRight size={17} aria-hidden="true" /></button></div>
           <p id="job-url-hint" className="kb-search-hint">매출과 주요 사업부터, 채용 이유와 필요한 역량까지.</p>
           {feedback}
         </form>
@@ -389,7 +396,7 @@ export default function KnowBothApp() {
         <button type="button" className="kb-text-button kb-back" onClick={backToSearch} disabled={reading}><ArrowLeft size={15} />공고 바꾸기</button>
         <p className="kb-confirmed-label"><Check size={14} />공고 확인 완료</p><h1 ref={resultHeadingRef} tabIndex={-1} id="profile-title">{jobPreview.company}</h1><p className="kb-position-title">{jobPreview.position}</p>
         {safeUrl(url) && <a className="kb-original-link" href={safeUrl(url)!} target="_blank" rel="noopener noreferrer">공고 원문 <ArrowUpRight size={12} /></a>}
-        <div className="kb-input-divider" /><h2>나에게 맞춰서 볼까요?</h2><p className="kb-profile-intro">이력서를 더하면, 내 경험과 필요한 준비도 함께 알려드려요. 지금은 건너뛰어도 괜찮아요.</p>
+        <div className="kb-input-divider" /><h2>나에게 맞춰서 볼까요?</h2><p className="kb-profile-intro">이력서를 더하면, 내 경험과 필요한 준비도 함께 알려드려요. 분석이 끝나면 경험과 연결되는 다른 회사의 원티드 공고도 찾아드려요. 지금은 건너뛰어도 괜찮아요.</p>
         <form onSubmit={event => void analyze(event)} aria-label="선택적 경험 추가 및 분석">
           <input ref={fileRef} id="resume-file" type="file" accept=".pdf,.docx,.txt,.md" className="kb-sr-only" onChange={event => { const file = event.target.files?.[0]; if (file) void readResume(file); }} disabled={reading} />
           <button className="kb-upload" type="button" disabled={reading} onClick={() => fileRef.current?.click()} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const file = event.dataTransfer.files[0]; if (file && !reading) void readResume(file); }}>{reading ? <LoaderCircle size={23} className="kb-spin" /> : <Upload size={23} />}<strong>{reading ? "파일에서 경험을 읽고 있어요" : fileName || "이력서 추가하기"}</strong><span>PDF · DOCX · TXT · MD / 8MB 이하</span></button>
@@ -419,6 +426,7 @@ export default function KnowBothApp() {
             <div id="panel-fit" role="tabpanel" aria-labelledby="tab-fit" tabIndex={0} className={`kb-tab-panel ${activeTab !== "fit" ? "kb-inactive" : ""}`}><SectionTitle number="03" title="나와 비교" text="공고의 요구와 내가 실제로 해본 일을 연결해요." />{report.fitItems === null ? <div className="kb-surface kb-add-experience"><UserRound size={28} /><h3>내 경험을 더하면, 연결이 시작돼요</h3><p>이력서나 프로젝트 경험을 추가해 주세요.<br />기업 조사를 다시 실행하고 나에게 필요한 준비를 함께 분석해요.</p><button type="button" className="kb-secondary" onClick={editProfile}><Plus size={16} />내 경험 추가하기</button></div> : <><p className="kb-fit-note"><Info size={15} />이력서에 없는 역량은 ‘부족’ 대신 ‘추가 확인’으로 표시해요.</p>{report.fitItems.map((item, i) => { const req = report.requirements.find(r => r.id === item.requirementId); return <article key={i} className="kb-surface kb-fit-item"><div className="kb-section-label"><span className="kb-category">{req?.category === "preferred" ? "우대" : req?.category === "work" ? "주요 업무" : "필수"}</span><span className={`kb-badge kb-fit-${item.status}`}>{FIT_LABEL[item.status]}</span></div><h3>{req?.label || "요구 역량"}</h3>{req && <p className="kb-job-quote">공고 · {req.jobQuote}</p>}{item.profileQuote && <blockquote><span>내 경험에서</span>{item.profileQuote}</blockquote>}<p>{item.reason}</p>{item.followUpQuestion && <p className="kb-question"><span>확인해 볼 질문</span>{item.followUpQuestion}</p>}</article>; })}{!report.fitItems.length && <EmptyState title="연결할 경험을 더 확인하고 있어요" text={report.sectionStates.personalization.reason || "직접 맡은 역할과 경험을 조금 더 구체적으로 입력해 주세요."} />}</>}{!!report.conditionChecks?.length && <div className="kb-surface"><h3>지원 조건</h3>{report.conditionChecks.map((item, i) => <div className="kb-condition" key={i}><strong>{report.requirements.find(r => r.id === item.requirementId)?.label}</strong><span className="kb-badge kb-unknown">{{ met: "충족 근거 있음", not_met: "불일치 근거 있음", unknown: "확인 필요" }[item.status]}</span><p>{item.reason}</p></div>)}</div>}{report.preferenceQuestions.length > 0 && <div className="kb-surface"><h3>내가 확인할 회사 조건</h3>{report.preferenceQuestions.map((item, i) => <p className="kb-question" key={i}><span>{item.preferenceQuote}</span>{item.question}</p>)}</div>}</div>
             <div id="panel-prepare" role="tabpanel" aria-labelledby="tab-prepare" tabIndex={0} className={`kb-tab-panel ${activeTab !== "prepare" ? "kb-inactive" : ""}`}><SectionTitle number="04" title="지원 준비" text="더 알아봐야 할 것을, 지금 할 수 있는 행동으로 바꿔요." />{(["highlight", "prepare", "ask"] as const).map(kind => { const items = report.actions.filter(item => item.kind === kind); if (!items.length) return null; return <div className="kb-surface kb-action-group" key={kind}><h3>{kind === "highlight" ? "지원서에서 강조할 경험" : kind === "prepare" ? "먼저 준비하면 좋은 것" : "면접에서 확인할 질문"}</h3>{items.map((item, i) => <article className="kb-action" key={i}><span className="kb-action-number">{String(i + 1).padStart(2, "0")}</span><div><h4>{item.title}</h4>{item.profileQuote && <blockquote>{item.profileQuote}</blockquote>}{item.deliverable && <p><strong>결과물</strong>{item.deliverable}</p>}{item.doneWhen && <p><strong>완료 기준</strong>{item.doneWhen}</p>}{item.requirementIds.length > 0 && <div className="kb-linked-requirements">{item.requirementIds.map(id => <span key={id}>{report.requirements.find(req => req.id === id)?.label || id}</span>)}</div>}</div></article>)}</div>; })}{!report.actions.length && <EmptyState title="준비 과제를 정할 근거가 아직 부족해요" text={report.sectionStates.preparation.reason || "내가 맡은 역할과 경험을 보완해서 다시 분석해 주세요."} />}</div>
             <details className="kb-sources" open><summary><BookOpen size={16} />출처와 확인 범위 <span>{report.sources.length}</span><ChevronDown size={16} /></summary><div>{report.warnings.filter(warning => !sample || !warning.includes("가상")).map((warning, i) => <p className="kb-source-warning" key={i}><Info size={14} />{warning}</p>)}{report.sources.map((source, index) => <article id={`source-${source.id}`} className="kb-source" key={source.id}><span className="kb-source-number">{index + 1}</span><div>{safeUrl(source.url) ? <a href={safeUrl(source.url)!} target="_blank" rel="noopener noreferrer">{source.title}<ExternalLink size={12} /></a> : <strong>{source.title}</strong>}<p>{source.publisher || "발행기관 미확인"} · {source.evidenceMode === "raw_text" ? "확보 원문" : source.evidenceMode === "provider_citation" ? "검색 제공자 인용" : "사용자 제공 자료"}</p><p>발행일 {source.publishedAt || "미확인"} · 확인일 {dateLabel(source.retrievedAt)}</p>{source.excerpt && source.kind !== "job" && <details className="kb-excerpt"><summary>근거 내용 보기</summary><p>{source.excerpt}</p></details>}</div></article>)}</div></details>
+        <RecommendedJobs key={report.analysisId} context={recommendationContext?.analysisId === report.analysisId ? recommendationContext : null} sample={sample} onEditProfile={editProfile} />
         <div className="kb-report-end"><button type="button" className="kb-secondary" onClick={backToSearch}>다른 공고 분석하기 <ArrowRight size={16} /></button>{!sample && <button type="button" className="kb-text-button" onClick={editProfile}>{openedFromHistory ? "공고 재확인 후 경험 수정하기" : "내 경험 수정하기"}</button>}</div>
       </section>}
     </main>

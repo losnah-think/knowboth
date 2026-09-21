@@ -63,7 +63,7 @@ function restoreKey(value: string | undefined) {
 test("normalizes only credential-free Wanted job URLs", () => {
   assert.equal(normalizeWantedJobUrl("https://www.wanted.co.kr/wd/123?utm_source=test#top"), "https://www.wanted.co.kr/wd/123");
   assert.equal(normalizeWantedJobUrl("https://www.wanted.co.kr/wd/123/"), "https://www.wanted.co.kr/wd/123");
-  assert.equal(normalizeWantedJobUrl("https://wanted.co.kr/wd/123"), null);
+  assert.equal(normalizeWantedJobUrl("https://wanted.co.kr/wd/123"), "https://www.wanted.co.kr/wd/123");
   assert.equal(normalizeWantedJobUrl("https://www.wanted.co.kr/wd/0"), null);
   assert.equal(normalizeWantedJobUrl("https://user:pass@www.wanted.co.kr/wd/123"), null);
 });
