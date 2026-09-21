@@ -60,9 +60,20 @@ export class JobResearchError extends Error {
 export function normalizeWantedJobUrl(value: string) {
   try {
     const url = new URL(value);
-    const match = url.pathname.match(/^\/wd\/([1-9]\d*)\/?$/);
-    if (url.protocol !== "https:" || url.hostname !== "www.wanted.co.kr" || url.username || url.password || !match) return null;
-    return `https://www.wanted.co.kr/wd/${match[1]}`;
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return null;
+
+    const wantedMatch = url.pathname.match(/^\/wd\/([1-9]\d*)\/?$/);
+    if ((url.hostname === "www.wanted.co.kr" || url.hostname === "wanted.co.kr") && wantedMatch) {
+      return `https://www.wanted.co.kr/wd/${wantedMatch[1]}`;
+    }
+
+    // Wanted's share sheet uses wntd.co short links. Keep the short URL so
+    // web research can follow the redirect to the canonical posting.
+    if (url.hostname === "wntd.co" && /^\/[A-Za-z0-9_-]+\/?$/.test(url.pathname)) {
+      url.hash = "";
+      return url.toString();
+    }
+    return null;
   } catch {
     return null;
   }
