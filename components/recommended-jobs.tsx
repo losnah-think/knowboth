@@ -78,7 +78,7 @@ export default function RecommendedJobs({ context, sample, onEditProfile }: {
   useEffect(() => {
     // Defer one tick so React Strict Mode cleanup cancels the first mount before any paid request.
     const timer = window.setTimeout(() => { void search(true); }, 0);
-    return () => { window.clearTimeout(timer); generation.current++; controller.current?.abort(); };
+    return () => { window.clearTimeout(timer); generation.current += 1; controller.current?.abort(); };
   }, [search]);
 
   const unavailable = sample || !context?.profile;
