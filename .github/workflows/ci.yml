@@ -1,0 +1,44 @@
+name: CI
+on:
+  push:
+    branches: [main, 'feat/verified-wanted-recommendations']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      - run: npm run build
+      - name: Source snapshot for review
+        if: always() && github.ref == 'refs/heads/feat/verified-wanted-recommendations'
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-review
+          retention-days: 1
+          path: |
+            app
+            components
+            lib
+            tests
+            scripts
+            docs
+            public/favicon.svg
+            package.json
+            package-lock.json
+            tsconfig.json
+            next.config.ts
+            eslint.config.mjs
+            README.md
