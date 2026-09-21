@@ -269,8 +269,17 @@ export default function KnowBothApp() {
         try {
           const document = await loading.promise;
           if (document.numPages > 40) throw new Error("40페이지 이하의 PDF를 선택해 주세요.");
-          const pages: string[] = [];
-          for (let p = 1; p <= document.numPages; p++) { const page = await document.getPage(p); const content = await page.getTextContent(); pages.push(content.items.map(item => "str" in item ? `${item.str}${"hasEOL" in item && item.hasEOL ? "\n" : " "}` : "").join("")); page.cleanup(); }
+          const pages = await Promise.all(
+            Array.from({ length: document.numPages }, async (_, index) => {
+              const page = await document.getPage(index + 1);
+              try {
+                const content = await page.getTextContent();
+                return content.items.map(item => "str" in item ? `${item.str}${"hasEOL" in item && item.hasEOL ? "\\n" : " "}` : "").join("");
+              } finally {
+                page.cleanup();
+              }
+            }),
+          );
           text = pages.join("\n\n");
         } finally { await loading.destroy(); }
       } else if (ext === "docx") { const mammoth = await import("mammoth"); text = (await mammoth.extractRawText({ arrayBuffer: bytes })).value; }
