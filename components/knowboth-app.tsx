@@ -29,6 +29,10 @@ type StoredAnalysis = {
 };
 type ProgressState = "complete" | "current" | "upcoming";
 
+function extractHttpUrl(value: string) {
+  const match = value.match(/https?:\/\/[^\s<>"]+/i);
+  return match ? match[0].replace(/[),.;!?]+$/, "") : value.trim();
+}
 function safeUrl(value: string | null | undefined) {
   if (!value) return null;
   try { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password ? url.href : null; } catch { return null; }
@@ -219,7 +223,7 @@ export default function KnowBothApp() {
   function goHome() { homeRequested.current = true; controller.current?.abort(); setDownloadError(""); setError(""); setNotice(""); setView("search"); }
   function editProfile() {
     setError(""); setProfileOpen(true);
-    if (confirmedJob.current && confirmedJobProof.current && confirmedUrl.current === url.trim()) { setNotice(""); setView("profile"); return; }
+    if (confirmedJob.current && confirmedJobProof.current && confirmedUrl.current === extractHttpUrl(url)) { setNotice(""); setView("profile"); return; }
     setNeedsJobRefresh(true);
     setNotice("저장된 보고서는 공고를 다시 확인한 뒤 경험을 추가하거나 수정할 수 있어요.");
     setView("search");
@@ -280,12 +284,12 @@ export default function KnowBothApp() {
   }
 
   async function normalizeJob(signal?: AbortSignal) {
-    const response = await fetch("/api/job", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: url.trim() }), signal });
+    const response = await fetch("/api/job", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: extractHttpUrl(url) }), signal });
     const result = objectRecord(await response.json().catch(() => null));
     if (!response.ok) throw new Error(apiMessage(result, "공고를 확인하지 못했어요. 주소를 확인하고 다시 시도해 주세요."));
     if (result.status !== "ready" || !result.job || typeof result.jobProof !== "string") throw new Error(apiMessage(result, "공고 내용을 충분히 확인하지 못했어요. 잠시 후 다시 시도해 주세요."));
     const job = result.job as JobInput;
-    confirmedJob.current = job; confirmedJobProof.current = result.jobProof; confirmedUrl.current = url.trim();
+    confirmedJob.current = job; confirmedJobProof.current = result.jobProof; confirmedUrl.current = extractHttpUrl(url);
     setJobPreview({ company: job.companyDisplayName, position: job.positionTitle });
     return job;
   }
@@ -308,7 +312,7 @@ export default function KnowBothApp() {
     const withProfile = choice ? profileIncluded : includeProfile;
     if (withProfile && experience.length > MAX_TEXT) { setError("내 경험은 20,000자까지 분석할 수 있어요. 필요한 경험만 남겨 주세요."); document.getElementById("experience")?.focus(); return; }
     const job = confirmedJob.current;
-    if (!job || !confirmedJobProof.current || confirmedUrl.current !== url.trim()) { clearConfirmedJob(); setNeedsJobRefresh(true); setError("분석 전에 공고를 다시 확인해 주세요. 입력한 주소는 그대로 남아 있어요."); setView("search"); return; }
+    if (!job || !confirmedJobProof.current || confirmedUrl.current !== extractHttpUrl(url)) { clearConfirmedJob(); setNeedsJobRefresh(true); setError("분석 전에 공고를 다시 확인해 주세요. 입력한 주소는 그대로 남아 있어요."); setView("search"); return; }
     homeRequested.current = false; setProfileIncluded(withProfile);
     setView("analysis"); setCandidates([]);
     const current = new AbortController(); controller.current = current;
