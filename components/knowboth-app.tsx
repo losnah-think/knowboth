@@ -376,7 +376,7 @@ export default function KnowBothApp() {
     <main ref={reportRef} id="analysis-content" tabIndex={-1} className={`kb-main ${view === "search" ? "kb-search-main" : view === "report" ? "kb-report-main" : "kb-flow-main"}`} aria-busy={working}>
       {view === "search" && <section className="kb-search-home" aria-labelledby="search-title">
         <div className="kb-search-brand"><span className="kb-logo" aria-hidden="true"><span /><span /></span><h1 id="search-title">KnowBoth</h1></div>
-        <p className="kb-search-copy">기업을 알고, 나를 알고.<br />지원의 방향을 찾다.</p>
+        <p className="kb-search-copy">기업을 알고, 나를 알고.{" "}<br />지원의 방향을 찾다.</p>
         <form className="kb-search-form" onSubmit={event => void importJob(event)} aria-label="원티드 공고 분석">
           <label className="kb-sr-only" htmlFor="job-url">원티드 공고 URL</label>
           <div className="kb-search-bar"><Link2 size={20} aria-hidden="true" /><input ref={urlRef} id="job-url" type="text" inputMode="url" required value={url} onChange={event => { setUrl(event.target.value); clearConfirmedJob(); setNeedsJobRefresh(false); setError(""); setNotice(""); }} placeholder="원티드 공고 URL 또는 공유 문구를 붙여넣으세요" autoComplete="off" aria-describedby="job-url-hint" /><button type="submit">{needsJobRefresh ? "공고 다시 확인" : "분석하기"}<ArrowRight size={17} aria-hidden="true" /></button></div>
