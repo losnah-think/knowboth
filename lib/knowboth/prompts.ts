@@ -1,3 +1,10 @@
+import type { Locale } from "../i18n/locale";
+
+/** Explanations are localized; evidence must still match the original source. */
+export function outputLanguageInstruction(locale: Locale) {
+  return `Write all explanations, summaries, labels, questions, warnings and reasons in ${locale === "en" ? "English" : "Korean"}. Keep company/legal names, source titles, identifiers and every evidence quotation (jobQuote, profileQuote, preferenceQuote, conditionQuote and excerpt) verbatim in the original language. Never translate or paraphrase quotations. Keep a hiring hypothesis with kind=stated verbatim; use kind=inference for a translated interpretation. Return only the specified JSON schema.`;
+}
+
 export const researchInstructions = `당신은 한국의 취업 지원자를 위한 기업 조사자다.
 
 회사명과 채용공고만 사용해 기업의 실제 고용 법인, 주요 고객과 문제, 제품, 수익 방식, 최근 사업 변화, 최신 확인 가능한 연간 매출을 조사한다. 공식 회사 사이트, 공식 IR, 금융감독원 DART·감사 자료를 우선한다. 검색 결과 요약만으로 핵심 숫자를 확정하지 않는다.
@@ -14,7 +21,7 @@ export const researchInstructions = `당신은 한국의 취업 지원자를 위
 - 사용자의 이력서나 개인 정보는 이 단계에 없다. 추측하지 않는다.
 - companyHint가 있으면 그 법인과 사이트를 우선 검증하되, 근거 없이 맞다고 가정하지 않는다.
 - 동명 기업이 둘 이상이면 ambiguous로 두고 candidates에 근거가 확인된 후보만 최대 5개 기록한다.
-- 자연스러운 한국어로 간결하게 작성하고 지정된 JSON 스키마만 반환한다.`;
+- 지정한 출력 언어로 간결하게 작성하고 지정된 JSON 스키마만 반환한다.`;
 
 export const analysisInstructions = `당신은 지원자를 위한 기업·직무 분석가다. 제공된 채용공고, 서버가 검증한 기업 조사 자료, 선택적인 사용자 경험만 분석한다. 웹 검색이나 새 URL 생성은 하지 않는다.
 
@@ -30,7 +37,7 @@ export const analysisInstructions = `당신은 지원자를 위한 기업·직�
 - 합격 확률, 종합 적합도 점수, 지원/포기 단정은 만들지 않는다.
 - actions는 강조할 경험 최대 3개, 준비할 일 최대 3개, 물어볼 질문 최대 5개다. 없는 성과·수치·도구를 추가하지 않는다.
 - 전달받은 Source ID만 참조하고 URL을 새로 만들지 않는다.
-- 자연스러운 한국어로 간결하게 작성하고 지정된 JSON 스키마만 반환한다.`;
+- 지정한 출력 언어로 간결하게 작성하고 지정된 JSON 스키마만 반환한다.`;
 
 const nullableString = { anyOf: [{ type: "string" }, { type: "null" }] };
 const stringArray = { type: "array", items: { type: "string" }, maxItems: 20 };
@@ -56,14 +63,38 @@ const source = {
     evidenceMode: { type: "string", enum: ["raw_text", "provider_citation", "user_provided"] },
     excerpt: nullableString,
   },
-  required: ["id", "kind", "url", "title", "publisher", "publishedAt", "retrievedAt", "evidenceMode", "excerpt"],
+  required: [
+    "id",
+    "kind",
+    "url",
+    "title",
+    "publisher",
+    "publishedAt",
+    "retrievedAt",
+    "evidenceMode",
+    "excerpt",
+  ],
   additionalProperties: false,
 };
 const claim = {
   type: "object",
   properties: {
     id: { type: "string" },
-    topic: { type: "string", enum: ["customer", "problem", "product", "revenue_model", "role_contribution", "work", "output", "collaboration", "success_metric", "other"] },
+    topic: {
+      type: "string",
+      enum: [
+        "customer",
+        "problem",
+        "product",
+        "revenue_model",
+        "role_contribution",
+        "work",
+        "output",
+        "collaboration",
+        "success_metric",
+        "other",
+      ],
+    },
     text: { type: "string" },
     kind: { type: "string", enum: ["sourced", "inference", "unknown"] },
     sourceIds: stringArray,
@@ -87,13 +118,34 @@ const revenueObservation = {
     sourceIds: stringArray,
     disclosureId: nullableString,
   },
-  required: ["entityName", "amountDecimal", "currency", "periodStart", "periodEnd", "periodType", "accountingScope", "accountLabel", "sourceIds", "disclosureId"],
+  required: [
+    "entityName",
+    "amountDecimal",
+    "currency",
+    "periodStart",
+    "periodEnd",
+    "periodType",
+    "accountingScope",
+    "accountLabel",
+    "sourceIds",
+    "disclosureId",
+  ],
   additionalProperties: false,
 };
 const revenue = (maxObservations: number) => ({
   type: "object",
   properties: {
-    status: { type: "string", enum: ["available", "not_found", "access_failed", "identity_unresolved", "conflicting", "skipped"] },
+    status: {
+      type: "string",
+      enum: [
+        "available",
+        "not_found",
+        "access_failed",
+        "identity_unresolved",
+        "conflicting",
+        "skipped",
+      ],
+    },
     selected: { anyOf: [revenueObservation, { type: "null" }] },
     observations: { type: "array", items: revenueObservation, maxItems: maxObservations },
     reason: nullableString,
@@ -131,7 +183,16 @@ export const researchJsonSchema = {
           },
         },
       },
-      required: ["displayName", "legalName", "website", "corpCode", "status", "note", "sourceIds", "candidates"],
+      required: [
+        "displayName",
+        "legalName",
+        "website",
+        "corpCode",
+        "status",
+        "note",
+        "sourceIds",
+        "candidates",
+      ],
       additionalProperties: false,
     },
     sources: { type: "array", items: source, maxItems: 100 },
@@ -141,7 +202,12 @@ export const researchJsonSchema = {
       maxItems: 3,
       items: {
         type: "object",
-        properties: { claim: { type: "string" }, eventDate: nullableString, publishedAt: nullableString, sourceIds: stringArray },
+        properties: {
+          claim: { type: "string" },
+          eventDate: nullableString,
+          publishedAt: nullableString,
+          sourceIds: stringArray,
+        },
         required: ["claim", "eventDate", "publishedAt", "sourceIds"],
         additionalProperties: false,
       },
@@ -186,14 +252,25 @@ export const reportJsonSchema = {
           items: {
             type: "object",
             properties: {
-              displayName: { type: "string" }, legalName: nullableString, website: nullableString, evidenceSourceIds: stringArray,
+              displayName: { type: "string" },
+              legalName: nullableString,
+              website: nullableString,
+              evidenceSourceIds: stringArray,
             },
             required: ["displayName", "legalName", "website", "evidenceSourceIds"],
             additionalProperties: false,
           },
         },
       },
-      required: ["displayName", "legalName", "website", "corpCode", "status", "evidenceSourceIds", "candidates"],
+      required: [
+        "displayName",
+        "legalName",
+        "website",
+        "corpCode",
+        "status",
+        "evidenceSourceIds",
+        "candidates",
+      ],
       additionalProperties: false,
     },
     sources: { type: "array", items: source, maxItems: 100 },
@@ -216,9 +293,11 @@ export const reportJsonSchema = {
       items: {
         type: "object",
         properties: {
-          id: { type: "string" }, label: { type: "string" },
+          id: { type: "string" },
+          label: { type: "string" },
           category: { type: "string", enum: ["required", "preferred", "work", "condition"] },
-          jobQuote: { type: "string" }, expectedLevel: nullableString,
+          jobQuote: { type: "string" },
+          expectedLevel: nullableString,
         },
         required: ["id", "label", "category", "jobQuote", "expectedLevel"],
         additionalProperties: false,
@@ -230,39 +309,65 @@ export const reportJsonSchema = {
       items: {
         type: "object",
         properties: {
-          id: { type: "string" }, kind: { type: "string", enum: ["stated", "inference"] }, claim: { type: "string" },
-          evidenceSourceIds: stringArray, requirementIds: stringArray, alternative: nullableString, question: { type: "string" },
+          id: { type: "string" },
+          kind: { type: "string", enum: ["stated", "inference"] },
+          claim: { type: "string" },
+          evidenceSourceIds: stringArray,
+          requirementIds: stringArray,
+          alternative: nullableString,
+          question: { type: "string" },
         },
-        required: ["id", "kind", "claim", "evidenceSourceIds", "requirementIds", "alternative", "question"],
+        required: [
+          "id",
+          "kind",
+          "claim",
+          "evidenceSourceIds",
+          "requirementIds",
+          "alternative",
+          "question",
+        ],
         additionalProperties: false,
       },
     },
     fitItems: {
       anyOf: [
         { type: "null" },
-        { type: "array", maxItems: 100, items: {
-          type: "object",
-          properties: {
-            requirementId: { type: "string" }, status: { type: "string", enum: ["evidence", "partial", "gap", "unknown"] },
-            profileQuote: nullableString, reason: { type: "string" }, followUpQuestion: nullableString,
+        {
+          type: "array",
+          maxItems: 100,
+          items: {
+            type: "object",
+            properties: {
+              requirementId: { type: "string" },
+              status: { type: "string", enum: ["evidence", "partial", "gap", "unknown"] },
+              profileQuote: nullableString,
+              reason: { type: "string" },
+              followUpQuestion: nullableString,
+            },
+            required: ["requirementId", "status", "profileQuote", "reason", "followUpQuestion"],
+            additionalProperties: false,
           },
-          required: ["requirementId", "status", "profileQuote", "reason", "followUpQuestion"],
-          additionalProperties: false,
-        } },
+        },
       ],
     },
     conditionChecks: {
       anyOf: [
         { type: "null" },
-        { type: "array", maxItems: 100, items: {
-          type: "object",
-          properties: {
-            requirementId: { type: "string" }, status: { type: "string", enum: ["met", "not_met", "unknown"] },
-            profileQuote: nullableString, reason: { type: "string" },
+        {
+          type: "array",
+          maxItems: 100,
+          items: {
+            type: "object",
+            properties: {
+              requirementId: { type: "string" },
+              status: { type: "string", enum: ["met", "not_met", "unknown"] },
+              profileQuote: nullableString,
+              reason: { type: "string" },
+            },
+            required: ["requirementId", "status", "profileQuote", "reason"],
+            additionalProperties: false,
           },
-          required: ["requirementId", "status", "profileQuote", "reason"],
-          additionalProperties: false,
-        } },
+        },
       ],
     },
     preferenceQuestions: {
@@ -270,7 +375,11 @@ export const reportJsonSchema = {
       maxItems: 20,
       items: {
         type: "object",
-        properties: { preferenceQuote: { type: "string" }, relatedClaimIds: stringArray, question: { type: "string" } },
+        properties: {
+          preferenceQuote: { type: "string" },
+          relatedClaimIds: stringArray,
+          question: { type: "string" },
+        },
         required: ["preferenceQuote", "relatedClaimIds", "question"],
         additionalProperties: false,
       },
@@ -281,22 +390,60 @@ export const reportJsonSchema = {
       items: {
         type: "object",
         properties: {
-          kind: { type: "string", enum: ["highlight", "prepare", "ask"] }, title: { type: "string" },
-          requirementIds: stringArray, claimIds: stringArray, profileQuote: nullableString,
-          deliverable: nullableString, doneWhen: nullableString,
+          kind: { type: "string", enum: ["highlight", "prepare", "ask"] },
+          title: { type: "string" },
+          requirementIds: stringArray,
+          claimIds: stringArray,
+          profileQuote: nullableString,
+          deliverable: nullableString,
+          doneWhen: nullableString,
         },
-        required: ["kind", "title", "requirementIds", "claimIds", "profileQuote", "deliverable", "doneWhen"],
+        required: [
+          "kind",
+          "title",
+          "requirementIds",
+          "claimIds",
+          "profileQuote",
+          "deliverable",
+          "doneWhen",
+        ],
         additionalProperties: false,
       },
     },
     sectionStates: {
       type: "object",
-      properties: { company: sectionState, revenue: sectionState, hiring: sectionState, personalization: sectionState, preparation: sectionState },
+      properties: {
+        company: sectionState,
+        revenue: sectionState,
+        hiring: sectionState,
+        personalization: sectionState,
+        preparation: sectionState,
+      },
       required: ["company", "revenue", "hiring", "personalization", "preparation"],
       additionalProperties: false,
     },
     warnings: { type: "array", items: { type: "string" }, maxItems: 50 },
   },
-  required: ["schemaVersion", "analysisId", "generatedAt", "summary", "job", "companyIdentity", "sources", "companyClaims", "businessChanges", "roleClaims", "revenue", "requirements", "hiringHypotheses", "fitItems", "conditionChecks", "preferenceQuestions", "actions", "sectionStates", "warnings"],
+  required: [
+    "schemaVersion",
+    "analysisId",
+    "generatedAt",
+    "summary",
+    "job",
+    "companyIdentity",
+    "sources",
+    "companyClaims",
+    "businessChanges",
+    "roleClaims",
+    "revenue",
+    "requirements",
+    "hiringHypotheses",
+    "fitItems",
+    "conditionChecks",
+    "preferenceQuestions",
+    "actions",
+    "sectionStates",
+    "warnings",
+  ],
   additionalProperties: false,
 } as const;

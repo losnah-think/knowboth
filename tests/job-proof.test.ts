@@ -12,7 +12,8 @@ const job: JobInput = {
   inputMethod: "ai_research",
   companyDisplayName: "안티그래비티",
   positionTitle: "백엔드 개발자",
-  rawText: "주요 업무:\n- 서비스 백엔드 API를 개발하고 운영합니다.\n\n자격 요건:\n- 백엔드 서비스 개발 경험이 필요합니다.",
+  rawText:
+    "주요 업무:\n- 서비스 백엔드 API를 개발하고 운영합니다.\n\n자격 요건:\n- 백엔드 서비스 개발 경험이 필요합니다.",
   collectedAt: "2026-09-19T10:00:00+09:00",
   userEdited: false,
 };
@@ -24,7 +25,9 @@ const wantedPageHtml = `<!doctype html><html><body><main>
 </main></body></html>`;
 
 function isWantedRequest(input: string | URL | Request) {
-  return String(input instanceof Request ? input.url : input).startsWith("https://www.wanted.co.kr/wd/");
+  return String(input instanceof Request ? input.url : input).startsWith(
+    "https://www.wanted.co.kr/wd/",
+  );
 }
 
 function restoreEnv(name: string, value: string | undefined) {
@@ -36,7 +39,10 @@ test("job proof binds every server-researched job field", () => {
   const proof = createJobProof(job, secret);
   assert.equal(verifyJobProof(proof, job, secret), true);
   assert.equal(verifyJobProof(proof, { ...job, companyDisplayName: "다른 회사" }, secret), false);
-  assert.equal(verifyJobProof(proof, { ...job, rawText: `${job.rawText}\n임의 내용` }, secret), false);
+  assert.equal(
+    verifyJobProof(proof, { ...job, rawText: `${job.rawText}\n임의 내용` }, secret),
+    false,
+  );
   assert.equal(verifyJobProof(proof, job, "different-key"), false);
   assert.equal(verifyJobProof("v1.invalid", job, secret), false);
 });
@@ -47,30 +53,44 @@ test("job API returns a verifiable proof with the researched job", async () => {
   const originalVercel = process.env.VERCEL;
   process.env.OPENAI_API_KEY = secret;
   process.env.VERCEL = "1";
-  globalThis.fetch = async input => isWantedRequest(input)
-    ? new Response(wantedPageHtml, { status: 200, headers: { "Content-Type": "text/html" } })
-    : new Response(JSON.stringify({
-      status: "completed",
-      output: [
-        { type: "web_search_call", status: "completed" },
-        { type: "message", content: [{ type: "output_text", text: JSON.stringify({
-          postingId: "103227",
-          companyDisplayName: job.companyDisplayName,
-          positionTitle: job.positionTitle,
-          responsibilities: ["서비스 백엔드 API를 개발하고 운영합니다."],
-          requirements: ["백엔드 서비스 개발 경험이 필요합니다."],
-          preferredQualifications: [],
-          otherDetails: [],
-        }) }] },
-      ],
-    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  globalThis.fetch = async (input) =>
+    isWantedRequest(input)
+      ? new Response(wantedPageHtml, { status: 200, headers: { "Content-Type": "text/html" } })
+      : new Response(
+          JSON.stringify({
+            status: "completed",
+            output: [
+              { type: "web_search_call", status: "completed" },
+              {
+                type: "message",
+                content: [
+                  {
+                    type: "output_text",
+                    text: JSON.stringify({
+                      postingId: "103227",
+                      companyDisplayName: job.companyDisplayName,
+                      positionTitle: job.positionTitle,
+                      responsibilities: ["서비스 백엔드 API를 개발하고 운영합니다."],
+                      requirements: ["백엔드 서비스 개발 경험이 필요합니다."],
+                      preferredQualifications: [],
+                      otherDetails: [],
+                    }),
+                  },
+                ],
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
 
   try {
-    const response = await researchJob(new Request("http://localhost/api/job", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: job.sourceUrl }),
-    }));
+    const response = await researchJob(
+      new Request("http://localhost/api/job", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: job.sourceUrl }),
+      }),
+    );
     const body = await response.json();
     assert.equal(response.status, 200);
     assert.equal(typeof body.jobProof, "string");
@@ -91,36 +111,52 @@ test("job API retries transient failures and stops after three attempts", async 
   let openAICalls = 0;
   let wantedCalls = 0;
   let succeedsOn = 3;
-  globalThis.fetch = async input => {
+  globalThis.fetch = async (input) => {
     if (isWantedRequest(input)) {
       wantedCalls += 1;
-      return new Response(wantedPageHtml, { status: 200, headers: { "Content-Type": "text/html" } });
+      return new Response(wantedPageHtml, {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      });
     }
     openAICalls += 1;
     const valid = openAICalls === succeedsOn;
-    return new Response(JSON.stringify({
-      status: "completed",
-      output: [
-        { type: "web_search_call", status: "completed" },
-        { type: "message", content: [{ type: "output_text", text: JSON.stringify({
-          postingId: "103227",
-          companyDisplayName: job.companyDisplayName,
-          positionTitle: job.positionTitle,
-          responsibilities: valid ? ["서비스 백엔드 API를 개발하고 운영합니다."] : [],
-          requirements: valid ? ["백엔드 서비스 개발 경험이 필요합니다."] : [],
-          preferredQualifications: [],
-          otherDetails: [],
-        }) }] },
-      ],
-    }), { status: 200, headers: { "Content-Type": "application/json" } });
+    return new Response(
+      JSON.stringify({
+        status: "completed",
+        output: [
+          { type: "web_search_call", status: "completed" },
+          {
+            type: "message",
+            content: [
+              {
+                type: "output_text",
+                text: JSON.stringify({
+                  postingId: "103227",
+                  companyDisplayName: job.companyDisplayName,
+                  positionTitle: job.positionTitle,
+                  responsibilities: valid ? ["서비스 백엔드 API를 개발하고 운영합니다."] : [],
+                  requirements: valid ? ["백엔드 서비스 개발 경험이 필요합니다."] : [],
+                  preferredQualifications: [],
+                  otherDetails: [],
+                }),
+              },
+            ],
+          },
+        ],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
   };
 
   try {
-    const response = await researchJob(new Request("http://localhost/api/job", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: job.sourceUrl }),
-    }));
+    const response = await researchJob(
+      new Request("http://localhost/api/job", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: job.sourceUrl }),
+      }),
+    );
     assert.equal(response.status, 200);
     assert.equal(openAICalls, 3);
     assert.equal(wantedCalls, 3);
@@ -128,30 +164,37 @@ test("job API retries transient failures and stops after three attempts", async 
     openAICalls = 0;
     wantedCalls = 0;
     succeedsOn = Number.POSITIVE_INFINITY;
-    const failed = await researchJob(new Request("http://localhost/api/job", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: job.sourceUrl }),
-    }));
+    const failed = await researchJob(
+      new Request("http://localhost/api/job", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: job.sourceUrl }),
+      }),
+    );
     assert.equal(failed.status, 502);
     assert.equal(openAICalls, 3);
     assert.equal(wantedCalls, 3);
 
     openAICalls = 0;
     wantedCalls = 0;
-    globalThis.fetch = async input => {
+    globalThis.fetch = async (input) => {
       if (isWantedRequest(input)) {
         wantedCalls += 1;
-        return new Response(wantedPageHtml, { status: 200, headers: { "Content-Type": "text/html" } });
+        return new Response(wantedPageHtml, {
+          status: 200,
+          headers: { "Content-Type": "text/html" },
+        });
       }
       openAICalls += 1;
       return new Response("{}", { status: 400, headers: { "Content-Type": "application/json" } });
     };
-    const configurationError = await researchJob(new Request("http://localhost/api/job", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: job.sourceUrl }),
-    }));
+    const configurationError = await researchJob(
+      new Request("http://localhost/api/job", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: job.sourceUrl }),
+      }),
+    );
     assert.equal(configurationError.status, 503);
     assert.equal((await configurationError.json()).retryable, false);
     assert.equal(openAICalls, 1);
@@ -159,22 +202,30 @@ test("job API retries transient failures and stops after three attempts", async 
 
     openAICalls = 0;
     wantedCalls = 0;
-    globalThis.fetch = async input => {
+    globalThis.fetch = async (input) => {
       if (isWantedRequest(input)) {
         wantedCalls += 1;
-        return new Response(wantedPageHtml, { status: 200, headers: { "Content-Type": "text/html" } });
+        return new Response(wantedPageHtml, {
+          status: 200,
+          headers: { "Content-Type": "text/html" },
+        });
       }
       openAICalls += 1;
-      return new Response(JSON.stringify({
-        status: "completed",
-        output: [{ type: "message", content: [{ type: "refusal", refusal: "cannot comply" }] }],
-      }), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response(
+        JSON.stringify({
+          status: "completed",
+          output: [{ type: "message", content: [{ type: "refusal", refusal: "cannot comply" }] }],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
     };
-    const refusal = await researchJob(new Request("http://localhost/api/job", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: job.sourceUrl }),
-    }));
+    const refusal = await researchJob(
+      new Request("http://localhost/api/job", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: job.sourceUrl }),
+      }),
+    );
     assert.equal(refusal.status, 502);
     assert.equal((await refusal.json()).retryable, false);
     assert.equal(openAICalls, 1);
@@ -198,11 +249,22 @@ test("analyze API validates jobs before retrying generation up to three times", 
     return new Response("{}", { status: 429, headers: { "Content-Type": "application/json" } });
   };
 
-  const request = (candidate: JobInput, proof?: string) => analyzeJob(new Request("http://localhost/api/analyze", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...(proof ? { "X-KnowBoth-Job-Proof": proof } : {}) },
-    body: JSON.stringify({ job: candidate, profile: null, companyHint: null, companyResolution: "skip_financials" }),
-  }));
+  const request = (candidate: JobInput, proof?: string) =>
+    analyzeJob(
+      new Request("http://localhost/api/analyze", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(proof ? { "X-KnowBoth-Job-Proof": proof } : {}),
+        },
+        body: JSON.stringify({
+          job: candidate,
+          profile: null,
+          companyHint: null,
+          companyResolution: "skip_financials",
+        }),
+      }),
+    );
 
   try {
     const proof = createJobProof(job, secret);
@@ -210,8 +272,24 @@ test("analyze API validates jobs before retrying generation up to three times", 
     assert.equal(missingProof.status, 401);
     assert.equal((await missingProof.json()).code, "JOB_PROOF_INVALID");
     assert.equal((await request({ ...job, positionTitle: "임의 직무" }, proof)).status, 401);
-    assert.equal((await request({ ...job, userEdited: true }, createJobProof({ ...job, userEdited: true }, secret))).status, 400);
-    assert.equal((await request({ ...job, sourceUrl: null }, createJobProof({ ...job, sourceUrl: null }, secret))).status, 400);
+    assert.equal(
+      (
+        await request(
+          { ...job, userEdited: true },
+          createJobProof({ ...job, userEdited: true }, secret),
+        )
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await request(
+          { ...job, sourceUrl: null },
+          createJobProof({ ...job, sourceUrl: null }, secret),
+        )
+      ).status,
+      400,
+    );
     assert.equal(fetchCalls, 0);
 
     assert.equal((await request(job, proof)).status, 502);
