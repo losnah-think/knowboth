@@ -1,12 +1,26 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
+import { LocaleProvider } from "@/components/locale-provider";
+import { LOCALE_COOKIE, resolveLocale } from "@/lib/i18n/locale";
+import { messages } from "@/lib/i18n/messages";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "KnowBoth · 기업을 알고, 나를 알고",
-  description: "원티드 공고와 내 경험으로 기업의 사업, 채용 배경, 필요한 역량과 지원 준비를 함께 분석하세요.",
-  icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = resolveLocale((await cookies()).get(LOCALE_COOKIE)?.value);
+  return {
+    title: messages[locale].pageTitle,
+    description: messages[locale].pageDescription,
+    icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
+  };
+}
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="ko"><body>{children}</body></html>;
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const locale = resolveLocale((await cookies()).get(LOCALE_COOKIE)?.value);
+  return (
+    <html lang={locale}>
+      <body>
+        <LocaleProvider initialLocale={locale}>{children}</LocaleProvider>
+      </body>
+    </html>
+  );
 }

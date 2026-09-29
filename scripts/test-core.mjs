@@ -1,8 +1,27 @@
-import {build} from 'esbuild';
-import {mkdir} from 'node:fs/promises';
-import {spawnSync} from 'node:child_process';
-await mkdir('work',{recursive:true});
-const tests=['core','job-research','job-proof','recommendations','recommendations-api','wanted-url','recommendation-edge'];
-await Promise.all(tests.map(name=>build({entryPoints:[`tests/${name}.test.ts`],bundle:true,platform:'node',format:'cjs',packages:'external',outfile:`work/${name}.test.cjs`})));
-const result=spawnSync(process.execPath,['--test',...tests.map(name=>`work/${name}.test.cjs`)],{stdio:'inherit'});
-process.exit(result.status??1);
+import { build } from "esbuild";
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+
+const tests = (await readdir("tests", { recursive: true }))
+  .filter((file) => file.endsWith(".test.ts"))
+  .sort();
+if (!tests.length) throw new Error("No tests found in tests/**/*.test.ts");
+
+await build({
+  entryPoints: tests.map((file) => join("tests", file)),
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  packages: "external",
+  outbase: "tests",
+  outdir: "work/tests",
+  outExtension: { ".js": ".cjs" },
+});
+const result = spawnSync(
+  process.execPath,
+  ["--test", ...tests.map((file) => join("work/tests", file.replace(/\.ts$/, ".cjs")))],
+  { stdio: "inherit" },
+);
+if (result.error) throw result.error;
+process.exit(result.status ?? 1);
